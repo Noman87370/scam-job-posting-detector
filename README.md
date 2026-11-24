@@ -1,0 +1,1 @@
+# scam-job-posting-detector
