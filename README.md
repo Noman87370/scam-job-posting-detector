@@ -114,4 +114,4 @@ Schwellenwert erkennt das Modell 77 % der betrügerischen Anzeigen (108 von 141)
 
 ## Contact
 **Abdullah Al Noman** · M.Sc. Medical Engineering (Medical Robotics), FAU Erlangen-Nürnberg
-Email: your.email@example.com · [LinkedIn](https://linkedin.com/in/your-profile) · [GitHub](https://github.com/Noman87370)
+· [LinkedIn](https://linkedin.com/in/your-profile) · [GitHub](https://github.com/Noman87370)
