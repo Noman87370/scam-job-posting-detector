@@ -20,17 +20,20 @@ def _seed_jobs():
             company="Acme GmbH", location="Berlin, Germany",
             url="https://example.com/a1", description="Data analysis with Python.",
             category="Werkstudent", posted_at=datetime(2026, 11, 19, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.05, risk_band="low", indicators="{}"),
+            fetched_at=now, fraud_probability=0.05, decision_score=-2.9,
+            risk_band="few", language="en", indicators="{}"),
         Job(source="arbeitnow", external_id="a2", title="Earn money fast from home",
             company="Quick Cash Ltd", location="Remote",
             url="https://example.com/a2", description="Send a fee to start.",
             category="Full-time", posted_at=datetime(2026, 11, 18, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.92, risk_band="high", indicators="{}"),
+            fetched_at=now, fraud_probability=0.92, decision_score=2.4,
+            risk_band="high", language="en", indicators="{}"),
         Job(source="arbeitnow", external_id="a3", title="Internship Marketing",
             company="Beta AG", location="Munich, Germany",
             url="https://example.com/a3", description="Marketing internship.",
             category="Internship", posted_at=datetime(2026, 11, 17, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.40, risk_band="medium", indicators="{}"),
+            fetched_at=now, fraud_probability=0.40, decision_score=0.3,
+            risk_band="some", language="de", indicators="{}"),
     ]
     db.add_all(rows)
     db.commit()
@@ -113,23 +116,95 @@ def test_predict_endpoint_contract(monkeypatch, client):
 
     def fake_predict(fields):
         return {
-            "fraud_probability": 0.81,
+            "decision_score": 2.1,
+            "fraud_probability": 0.89,
             "risk_band": "high",
-            "probability_threshold": 0.737,
-            "top_fraud_words": [{"word": "fee", "contribution": 1.2}],
-            "top_legit_words": [],
+            "risk_label": "High risk",
+            "threshold": 0.949,
+            "top_raising": [{"feature": "fee", "contribution": 1.2}],
+            "top_lowering": [],
             "indicators": [],
+            "language": "en",
+            "language_ok": True,
+            "language_message": "",
         }
 
     monkeypatch.setattr(main, "predict", fake_predict)
     r = client.post("/api/predict", json={
-        "title": "Earn money fast", "description": "Pay a fee to start.",
+        "title": "Earn money fast",
+        "description": "Pay a fee to start working from home and earn money fast "
+                       "with no experience needed, apply now, limited positions.",
     })
     assert r.status_code == 200
     data = r.json()
-    assert data["fraud_probability"] == 0.81
+    assert data["decision_score"] == 2.1
     assert data["risk_band"] == "high"
+    assert data["risk_label"] == "High risk"
+    assert data["threshold"] == 0.949
+    assert "fraud_probability" not in data  # never shown as a % chance
+    assert data["language_ok"] is True
     assert "disclaimer" in data
+    assert "misses about 1 in 4 scams" in data["disclaimer"]
+
+
+def test_predict_rejects_too_short_and_too_long(monkeypatch, client):
+    import backend.main as main
+
+    def fake_predict(fields):
+        return {
+            "decision_score": -1.0,
+            "fraud_probability": 0.27,
+            "risk_band": "few",
+            "risk_label": "Few warning signs",
+            "threshold": 0.949,
+            "top_raising": [],
+            "top_lowering": [],
+            "indicators": [],
+            "language": "en",
+            "language_ok": True,
+            "language_message": "",
+        }
+
+    monkeypatch.setattr(main, "predict", fake_predict)
+    r = client.post("/api/predict", json={"description": "Too short."})
+    assert r.status_code == 400
+    r = client.post("/api/predict", json={"description": "x" * 10_001})
+    assert r.status_code == 400
+    r = client.post("/api/predict", json={"description": "x" * 100})
+    assert r.status_code == 200
+
+
+def test_predict_non_english_returns_language_message(monkeypatch, client):
+    import backend.main as main
+
+    def fake_predict(fields):
+        return {
+            "decision_score": 0.5,
+            "fraud_probability": 0.62,
+            "risk_band": "some",
+            "risk_label": "Some warning signs",
+            "threshold": 0.949,
+            "top_raising": [],
+            "top_lowering": [],
+            "indicators": [],
+            "language": "de",
+            "language_ok": False,
+            "language_message": "This model was trained on English postings, "
+                                "so the result would be unreliable",
+        }
+
+    monkeypatch.setattr(main, "predict", fake_predict)
+    r = client.post("/api/predict", json={
+        "title": "Werkstudent im Bereich Datenanalyse",
+        "description": "Wir suchen einen Werkstudenten zur Unterstützung "
+                       "unseres Teams in Nürnberg. Sie arbeiten mit SQL und "
+                       "Python und präsentieren die Ergebnisse im Team.",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["language"] == "de"
+    assert data["language_ok"] is False
+    assert "trained on English postings" in data["language_message"]
 
 
 def test_ingest_requires_token(client):

@@ -1,6 +1,11 @@
 # Render Blueprint — deploys the whole platform as one free web service
 # plus a free Postgres database. Apply with `render blueprint` or by
 # connecting the repo in the Render dashboard (see DEPLOYMENT.md).
+#
+# The model is NOT retrained at build time: the app loads the
+# committed artifact model/model_artifacts.joblib (exported from the
+# research notebook — see the README). That keeps deploys fast and the
+# deployed model identical on every deploy.
 
 services:
   - type: web
@@ -9,8 +14,6 @@ services:
     plan: free
     buildCommand: >-
       pip install -r requirements.txt &&
-      pip install -r train/requirements.txt &&
-      python train/train_model.py &&
       cd frontend && npm install --no-audit --no-fund && npm run build && cd ..
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:

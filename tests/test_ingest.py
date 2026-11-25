@@ -72,10 +72,12 @@ SAMPLE_JOBS = [
 
 def _fake_score(fields):
     return {
-        "fraud_probability": 0.05, "risk_band": "low",
-        "probability_threshold": 0.737,
-        "top_fraud_words": [], "top_legit_words": [],
+        "decision_score": -2.9,
+        "fraud_probability": 0.05, "risk_band": "few",
+        "threshold": 0.949,
+        "top_raising": [], "top_lowering": [],
         "indicators": [],
+        "language": "en", "language_ok": True, "language_message": "",
     }
 
 
@@ -97,7 +99,10 @@ def test_ingest_filters_stores_dedupes(monkeypatch):
     assert jobs[0].title == "Werkstudent Data"
     assert jobs[0].location == "Berlin, Germany"
     assert jobs[0].fraud_probability == 0.05
-    assert json.loads(jobs[0].indicators)["top_fraud_words"] == []
+    assert jobs[0].decision_score == -2.9
+    assert jobs[0].risk_band == "few"
+    assert jobs[0].language == "en"
+    assert json.loads(jobs[0].indicators)["top_raising"] == []
     # Second run: same job is an update, not a new insert.
     result2 = ingest.ingest_arbeitnow(db=db)
     assert result2["inserted"] == 0

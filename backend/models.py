@@ -36,8 +36,15 @@ class Job(Base):
     posted_at = Column(DateTime, nullable=True, index=True)
     fetched_at = Column(DateTime, nullable=False)
     fraud_probability = Column(Float, nullable=False, default=0.0, index=True)
-    risk_band = Column(String(16), nullable=False, default="low", index=True)
-    # JSON: {"top_fraud_words": [...], "top_legit_words": [...], "indicators": [...]}
+    # Decision-function score the band was computed from. Stored so the
+    # band can be recomputed without re-running the model; None for rows
+    # ingested before this column existed (backfilled on next ingest).
+    decision_score = Column(Float, nullable=True)
+    risk_band = Column(String(16), nullable=False, default="few", index=True)
+    # ISO 639-1 language code detected at ingest ("en", "de", ...).
+    # None for rows ingested before this column existed (backfilled).
+    language = Column(String(10), nullable=True)
+    # JSON: {"top_raising": [...], "top_lowering": [...], "indicators": [...]}
     indicators = Column(Text, nullable=False, default="{}")
     expired = Column(Boolean, nullable=False, default=False, index=True)
 

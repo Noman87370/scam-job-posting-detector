@@ -1,391 +1,172 @@
-# 🛡️ Scam Job Posting Detector
+# Scam Job Posting Detector (English postings)
 
-<h3 align="center">AI-Powered Fraud Detection for Job Postings</h3>
+Detects fraudulent job postings from text and metadata — a demo of an NLP model trained in a Kaggle notebook, with a live job feed scored by the same model.
 
-<p align="center">
-  Detect fraudulent job postings using Machine Learning and explore real job opportunities across Germany with automated fraud-risk analysis.
-</p>
+## Live Demo
 
-<p align="center">
-  <a href="https://scam-job-detector-hob9.onrender.com">
-    <img src="https://img.shields.io/badge/🚀_Live_Demo-Try_Now-2ea44f?style=for-the-badge" alt="Live Demo">
-  </a>
-</p>
+Try it at https://scam-job-detector-hob9.onrender.com — paste an English job posting (title, description, requirements and the rest) into the "Check a posting" form, or browse the live German listings. The demo runs on Render's free tier, so the first load after a pause can take up to a minute to wake up. The model only works for English postings, and it misses about 1 in 4 scams, so treat every result as a rough estimate, not a verdict.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-blue?logo=python" alt="Python">
-  <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi" alt="FastAPI">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react" alt="React">
-  <img src="https://img.shields.io/badge/Machine_Learning-scikit--learn-orange?logo=scikitlearn" alt="Scikit-learn">
-  <img src="https://img.shields.io/badge/Deployment-Render-purple?logo=render" alt="Render">
-  <img src="https://img.shields.io/badge/Tests-17_Passing-brightgreen?logo=pytest" alt="Tests">
-</p>
+## What it does
 
----
+- **Check a posting** — fill in the fields of an English job ad (title, company profile, description, requirements, benefits, plus four checkboxes) and get a risk level with an explanation. Two fictional examples can be loaded with one click. Text you enter is processed only to compute the result and is not stored.
+- **Live job listings** — real German job postings from the Arbeitnow API, refreshed every 30 minutes. Search by title, company or location; filter by category (Werkstudent, Internship, Part-time, Full-time) and risk level; sort by date or risk. Each listing links to the original posting.
+- **Risk levels, never a verdict** — "High risk", "Some warning signs" or "Few warning signs", from the model's decision score. No band says "safe" or "not a scam", and no probability is shown as a "% chance of scam" (the probabilities are not calibrated).
+- **Scores are risk estimates, never a verdict** — and the model was trained on English-language data, so non-English postings get no risk level at all, only the note that the result would be unreliable.
 
-## 📌 Overview
+## How detection works
 
-**Scam Job Posting Detector** is a machine learning-based application designed to identify potentially fraudulent job advertisements.
+TF-IDF (1–2 grams, 60k features) plus 10 metadata flags, fed into a Logistic Regression classifier (`C=5`, class-balanced). Before scoring, real URLs, email addresses and phone numbers in the input are converted to the placeholders the training data used (`#URL_x#`, `#EMAIL_x#`, `#PHONE_x#`), so the token features behave as in training.
 
-It combines Natural Language Processing (NLP), TF-IDF feature extraction, Logistic Regression, and metadata-based indicators to estimate the probability that a job posting is fraudulent.
+The decision rule is the notebook's: score = `model.decision_function(X)`; "High risk" starts at a score of **0.949** (a predicted probability of about 0.72). "Some warning signs" is 0 to 0.949, "Few warning signs" below 0.
 
-Beyond classification, the project includes a live AI-powered job search platform that retrieves real job listings from Germany through the Arbeitnow API and evaluates their potential fraud risk.
+Reported results on the English test set (3,139 postings, 141 fake):
 
-### Model Performance
+| PR-AUC | Precision | Recall | Fake caught | False alarms |
+|---|---|---|---|---|
+| 0.917 | 93.1% | 76.6% | 108 of 141 | 8 of 2,998 real |
 
-| Metric | Result |
-|---|---:|
-| PR-AUC | **0.914** |
-| Precision | **93.9%** |
-| Recall | **75.9%** |
-| F1-score | **0.839** |
+The loaded model is the logistic regression from the notebook (the LinearSVC that was also compared is not used). The retrained model's own measurements (PR-AUC 0.914, precision 93.9%, recall 75.9%) are recorded in `model/METRICS.md` only — the UI shows the notebook's numbers above.
 
-At the selected decision threshold, the model detects approximately 76% of fraudulent postings while maintaining approximately 94% precision.
+## Dataset
 
-## 🚀 Live Application
+[Real / Fake Job Posting Prediction (Kaggle)](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction): 17,880 postings, 15,691 after removing duplicates and empty texts (12,552 train / 3,139 test, stratified split). The data is not included in this repository. The original research notebook is `scam-job-posting-detector.ipynb`.
 
-**Live Demo:** https://scam-job-detector-hob9.onrender.com
+## Export the model from the notebook
 
-### Key Features
+After training in the notebook, export the artifacts the app loads, and print the scikit-learn version (the `requirements.txt` pin must match it — a mismatch breaks loading the pickled model):
 
-- **Live Job Search:** Retrieves real German job advertisements from the Arbeitnow API, with automated ingestion every 30 minutes.
-- **Smart Search & Filtering:** Search by job title, company, or location. Filter by Werkstudent, Internship, Part-time, and Full-time categories.
-- **AI Fraud Detection:** Every listing receives a fraud probability and a low, medium, or high risk classification.
-- **Explainable Predictions:** Displays contributing words and rule-based warning indicators, such as requests for money, missing company profiles, and missing salary information.
-- **Job Posting Analyzer:** Paste any job advertisement to receive an individual fraud-risk assessment.
-- **Original Application Links:** Access the original job advertisement and application page.
-
-> ⚠️ Model scores are risk estimates, not definitive judgments. The model was trained on English-language data, so word-level explanations may be less meaningful for German postings.
-
-## 📊 Model Performance
-
-The project uses TF-IDF (1–2 grams, 60,000 features) combined with 10 metadata flags and a Logistic Regression classifier (`C=5`, class-balanced).
-
-The decision threshold was selected to maximize recall while maintaining at least 90% precision.
-
-### Evaluation Results
-
-| Metric | Original Notebook | Retrained Model |
-|---|---:|---:|
-| PR-AUC | 0.917 | 0.914 |
-| Precision | 93.1% | 93.9% |
-| Recall | 76.6% | 75.9% |
-| F1-score | 0.840 | 0.839 |
-| Fake postings detected | 108 / 141 | 107 / 141 |
-| False alarms | 8 | 7 |
-
-### Risk Classification
-
-| Risk Level | Probability |
-|---|---|
-| 🟢 Low | Below 0.25 |
-| 🟡 Medium | 0.25 – 0.736 |
-| 🔴 High | 0.737 and above |
-
-The retrained model is generated by `train/train_model.py`, reproducing the original notebook pipeline.
-
-For complete evaluation details, see [`model/METRICS.md`](model/METRICS.md).
-
-## 🧠 How It Works
-
-```text
-       Job Advertisement
-                |
-                ▼
-       Text Preprocessing
-                |
-                ▼
-       TF-IDF Feature Extraction
-                |
-                ▼
-       Metadata Feature Extraction
-                |
-                ▼
-       Logistic Regression
-                |
-                ▼
-       Fraud Probability Score
-                |
-                ▼
-       Risk Classification
-                |
-       ┌────────┼────────┐
-       ▼        ▼        ▼
-      LOW     MEDIUM    HIGH
-                |
-                ▼
-       Explainable Prediction
+```python
+joblib.dump({"vec": vec, "model": best, "meta_cols": meta_cols, "threshold": float(t),
+             "feature_names": feature_names}, "model_artifacts.joblib")
+print("scikit-learn version:", sklearn.__version__)
 ```
 
-### Machine Learning Pipeline
+Here `t` is the tuned decision threshold (0.949 in the notebook), `vec` the fitted `TfidfVectorizer`, `best` the fitted logistic regression, `meta_cols` the 10 metadata column names in order, and `feature_names = list(vec.get_feature_names_out()) + meta_cols`. Copy the resulting `model_artifacts.joblib` to `model/` and commit it — the app loads it directly, and deploys do not retrain.
 
-1. **Text preprocessing:** Cleans and prepares job descriptions and metadata.
-2. **Feature extraction:** Converts text into numerical TF-IDF features using unigrams and bigrams.
-3. **Metadata engineering:** Extracts 10 additional metadata indicators.
-4. **Classification:** Uses class-balanced Logistic Regression (`C=5`).
-5. **Threshold optimization:** Selects a decision threshold based on precision and recall requirements.
-6. **Prediction explanation:** Provides contributing words, fraud probability, and warning indicators.
+## Tech stack
 
-## 📁 Dataset
+- **Backend:** FastAPI, SQLAlchemy (SQLite locally, PostgreSQL in production), APScheduler
+- **Frontend:** React 19 + Vite (build served by the backend)
+- **ML:** scikit-learn, TF-IDF + Logistic Regression, joblib artifacts, langdetect
+- **Ingestion:** Arbeitnow API, GitHub Actions cron (every 30 min)
+- **Hosting:** Render (free tier) + free PostgreSQL
 
-**Source:** [Real / Fake Job Posting Prediction – Kaggle](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction)
+## Project structure
 
-| Dataset Information | Value |
-|---|---:|
-| Original postings | 17,880 |
-| After cleaning | 15,691 |
-| Training samples | 12,552 |
-| Testing samples | 3,139 |
-| Fake posting proportion | ~4.8% |
-
-The dataset contains real and fraudulent job advertisements.
-
-Duplicates and postings with empty text were removed before splitting the dataset.
-
-The dataset is not included in this repository. The original research notebook is available as `scam-job-posting-detector.ipynb`.
-
-## 🛠️ Technology Stack
-
-| Component | Technologies |
-|---|---|
-| Backend | Python, FastAPI |
-| Frontend | React 19, Vite |
-| Machine Learning | Scikit-learn, TF-IDF, Logistic Regression |
-| Data Processing | Pandas, NumPy |
-| Database | SQLite, PostgreSQL |
-| ORM | SQLAlchemy |
-| Scheduling | APScheduler |
-| Job Data | Arbeitnow API |
-| Model Storage | Joblib |
-| Testing | Pytest |
-| Deployment | Render |
-| Automation | GitHub Actions |
-| Containerization | Docker |
-
-## 🏗️ Project Structure
-
-```text
-Scam-Job-Posting-Detector/
-│
-├── scam-job-posting-detector.ipynb
-│
-├── backend/
-│   └── FastAPI application
-│
-├── common/
-│   └── Shared text-cleaning and metadata features
-│
-├── train/
-│   └── train_model.py
-│
-├── frontend/
-│   └── React + Vite dashboard
-│
-├── model/
-│   ├── Retrained model artifacts
-│   └── METRICS.md
-│
-├── tests/
-│   └── Pytest test suite
-│
-├── .github/
-│   └── workflows/
-│       └── ingest.yml
-│
-├── Dockerfile
-├── render.yaml
-├── requirements.txt
-├── DEPLOYMENT.md
-├── ARCHITECTURE.md
+```
+├── scam-job-posting-detector.ipynb   # original research notebook
+├── backend/          # FastAPI app: API, ingestion, scheduler, ML serving, language check
+├── common/           # shared text-cleaning / metadata features
+├── train/            # train_model.py — reproduces the notebook pipeline
+├── frontend/         # React + Vite dashboard (builds to backend/static)
+├── model/            # model_artifacts.joblib + METRICS.md (+ legacy artifacts)
+├── tests/            # pytest suite (24 tests, incl. smoke test)
+├── .github/workflows/ingest.yml     # 30-minute ingestion cron
+├── Dockerfile        # two-stage build (Node + Python)
+├── render.yaml       # Render Blueprint (web service + Postgres)
+├── requirements.txt  # backend runtime dependencies
+├── DEPLOYMENT.md     # exact deploy steps
+├── ARCHITECTURE.md   # stack, data flow, model, API contract
 └── README.md
 ```
 
-## ⚙️ Installation & Local Setup
+## Run locally
 
-### Prerequisites
-
-- Python 3.11+
-- Node.js and npm (optional for frontend development)
-- Git
-
-### 1. Clone the Repository
+**Platform:**
 
 ```bash
-git clone https://github.com/Noman87370/Scam-Job-Posting-Detector.git
-
-cd Scam-Job-Posting-Detector
-```
-
-### 2. Create a Virtual Environment
-
-```bash
-python -m venv .venv
-```
-
-Activate it:
-
-**Windows:**
-
-```bash
-.venv\Scripts\activate
-```
-
-**Linux / macOS:**
-
-```bash
-source .venv/bin/activate
-```
-
-### 3. Install Dependencies
-
-```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 4. Configure Environment Variables
-
-```bash
-cp .env.example .env
-```
-
-Configure `INGEST_TOKEN` in your `.env` file.
-
-### 5. Start the Backend
-
-```bash
+cp .env.example .env        # set INGEST_TOKEN
 uvicorn backend.main:app --reload --port 8000
+# open http://localhost:8000
 ```
 
-Open:
-
-http://localhost:8000
-
-### 6. Run the Frontend (Optional)
+Frontend development (optional — the backend serves the production build from `backend/static`):
 
 ```bash
-cd frontend
-
-npm install
-
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-### 7. Retrain the Model
+**Research notebook:**
 
 ```bash
-python train/train_model.py
+pip install pandas matplotlib seaborn jupyter
+# download fake_job_postings.csv from Kaggle, then:
+jupyter notebook scam-job-posting-detector.ipynb
 ```
 
-The trained model artifacts will be saved in the `model/` directory.
-
-### 8. Run Tests
+**Retrain the model:**
 
 ```bash
-python -m pytest tests/ -v
+pip install -r train/requirements.txt
+python train/train_model.py   # writes artifacts to model/, incl. model_artifacts.joblib
 ```
 
-## 🔌 API Documentation
+**Tests:**
+
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+
+## API
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/health` | Application and model health status |
-| GET | `/api/jobs` | Retrieve and filter job listings |
-| GET | `/api/jobs/{id}` | Retrieve an individual job |
-| POST | `/api/predict` | Analyze a job advertisement |
-| POST | `/api/jobs/ingest` | Trigger job ingestion |
-| GET | `/api/stats` | Statistics by category and risk band |
+| GET | `/health` | Status + whether the model loaded |
+| GET | `/api/jobs` | List jobs (`q`, `category`, `risk_band`, `min_risk`, `max_risk`, `sort`, `page`, `per_page`) |
+| GET | `/api/jobs/{id}` | One job |
+| POST | `/api/predict` | Score a pasted posting: decision score, risk band, top raising/lowering features, indicators, language check (100–10,000 characters total) |
+| POST | `/api/jobs/ingest` | Trigger ingestion (header `X-Ingest-Token`) |
+| GET | `/api/stats` | Totals by category and risk band |
 
-### Example Prediction Request
+Example:
 
 ```bash
 curl -X POST https://scam-job-detector-hob9.onrender.com/api/predict \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "Work from home, earn $5000/week",
-    "description": "...",
-    "location": "Remote"
-  }'
+  -d '{"title": "Work from home, earn $5000/week", "description": "Urgent hiring, no experience needed, pay a small registration fee to start immediately and earn money fast from home."}'
 ```
 
-## ☁️ Deployment
+## Deployment
 
-The application is deployed using Render.
+See `DEPLOYMENT.md` for the exact steps. In short: Render Blueprint (`render.yaml`) creates the web service + PostgreSQL, and the GitHub Actions workflow (`.github/workflows/ingest.yml`) triggers ingestion every 30 minutes. The workflow needs two repository secrets (Settings → Secrets and variables → Actions):
 
-The deployment architecture includes:
+- `APP_URL` — the live service URL, e.g. `https://scam-job-detector-hob9.onrender.com` (no trailing slash)
+- `INGEST_TOKEN` — must match the `INGEST_TOKEN` env var of the Render web service
 
-- Render Web Service for the FastAPI application.
-- Render PostgreSQL for persistent job data.
-- Docker multi-stage build for frontend and backend.
-- GitHub Actions for automated job ingestion every 30 minutes.
-- Arbeitnow API for live German job listings.
+Note: the free Render service sleeps after 15 minutes idle (cold start ~60 s), so the in-app scheduler alone cannot keep the feed fresh — the GitHub Actions cron is what keeps it updated, and it also wakes the service.
 
-### GitHub Actions Secrets
+## Job listings source
 
-Configure the following repository secrets:
+Listings come from the [Arbeitnow](https://www.arbeitnow.com) free public job-board API (`https://www.arbeitnow.com/api/job-board-api`, no key required). Its terms ask for a link back to Arbeitnow.com and for no abuse; the site's terms of service also say API permission can be revoked at any time, and the use licence (personal, non-commercial) is not explicit about whether it covers API data — so this feed is a non-commercial demo, and the feed should be removed if Arbeitnow objects. Ingestion is cached (one fetch every 30 minutes, ~10 requests per run) rather than re-reading the feed per visitor.
 
-| Secret | Description |
-|---|---|
-| `APP_URL` | Live Render application URL |
-| `INGEST_TOKEN` | Must match the Render service environment variable |
+## Key insights
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for detailed deployment instructions.
+- Both linear models perform almost identically on PR-AUC, so the main gains come from handling class imbalance and choosing the decision threshold, not from the model type.
+- The model flagged 116 of 3,139 test postings (3.7%); 108 of them were fake, so about 9 in 10 alerts are real scams — but about 1 in 4 scams is still missed.
+- Removing duplicate or empty postings before the split prevents identical texts from appearing in both training and test data.
 
-> Note: The free Render service sleeps after 15 minutes of inactivity. A cold start can take approximately 60 seconds. GitHub Actions helps maintain the ingestion schedule and wake the service.
+## Limitations
 
-## 🔍 Key Research Insights
+- Only about 800 fake examples in total (141 in the test set), from a single dataset, so the metrics carry uncertainty; scam wording also changes over time.
+- The threshold favors precision, which means roughly one in four scams is missed. A platform that prefers recall would choose a lower threshold.
+- Text features alone cannot catch carefully written scams.
+- Results come from one train/test split, with no external validation set.
+- English only: the model was trained on English postings. German listings in the feed are shown without a risk level.
+- The Arbeitnow API does not return a company profile or requirements, so every ingested listing is scored with those two flags set — the feed scores are thinner than a full posting check.
 
-- Both linear models achieve nearly identical PR-AUC scores, suggesting that handling class imbalance and optimizing the decision threshold are more important than changing the model type.
-- The retrained model flagged 116 of 3,139 test postings (3.7%). Of these, 107 were fraudulent.
-- Approximately 9 out of 10 flagged postings were fraudulent in the test set.
-- Removing duplicate and empty postings before splitting helps prevent data leakage between training and testing.
+## Future improvements
 
-## ⚠️ Limitations
+- Sentence-embedding features (e.g. MiniLM) compared with TF-IDF.
+- Cost-based threshold (cost of a missed scam vs. cost of a false alarm).
+- More job sources beyond Arbeitnow.
 
-- The dataset contains approximately 800 fake examples, with 141 in the test set.
-- The model was trained on a single dataset and has no external validation set.
-- The selected threshold prioritizes precision, meaning approximately one in four fraudulent postings is missed.
-- Text-based features cannot identify every sophisticated scam.
-- The model was trained on English-language advertisements, which limits the reliability of word-level explanations for German postings.
-- Fraud patterns evolve, so periodic retraining and additional data are necessary.
+## Kurzfassung (Deutsch)
 
-## 🔮 Future Improvements
+Dieses Projekt erkennt betrügerische Stellenanzeigen mit TF-IDF und logistischer Regression. Da nur etwa 4,8 % der Anzeigen gefälscht sind, wird nicht mit der Accuracy, sondern mit PR-AUC, Recall und Precision bewertet. Beim gewählten Schwellenwert erkennt das Modell etwa 77 % der betrügerischen Anzeigen bei einer Precision von 93 %. Die Live-Plattform zeigt echte deutsche Stellenanzeigen und ein Formular, in das man eine englische Stellenanzeige einfügen und prüfen kann: https://scam-job-detector-hob9.onrender.com
 
-- Compare TF-IDF with sentence embeddings such as MiniLM.
-- Introduce cost-sensitive threshold optimization.
-- Integrate additional German and international job APIs.
-- Improve multilingual fraud detection, especially German-language postings.
-- Add more metadata and company verification signals.
-- Evaluate performance using external validation datasets.
+## Contact
 
-## 🇩🇪 Kurzfassung (Deutsch)
-
-Der **Scam Job Posting Detector** ist eine KI-basierte Anwendung zur Erkennung betrügerischer Stellenanzeigen.
-
-Das Modell verwendet TF-IDF und logistische Regression, um das Betrugsrisiko einer Stellenanzeige zu bewerten.
-
-Bei einem ausgewählten Schwellenwert erkennt das Modell etwa 76 % der betrügerischen Anzeigen bei einer Precision von rund 94 %.
-
-Die Live-Plattform durchsucht echte Stellenanzeigen in Deutschland und zeigt für jede Anzeige eine Betrugswahrscheinlichkeit sowie eine Risikokategorie an.
-
-**Live-Demo:** https://scam-job-detector-hob9.onrender.com
-
-## 👨‍💻 Author
-
-**Abdullah Al Noman**
-
-M.Sc. Medical Engineering – Medical Robotics  
-Friedrich-Alexander-Universität Erlangen-Nürnberg (FAU)
-
-**Research Interests:** Machine Learning, Artificial Intelligence, Computer Vision, Medical Imaging, and Data Analysis.
-
-<p align="left">
-  <a href="https://github.com/Noman87370">
-    <img src="https://img.shields.io/badge/GitHub-Noman87370-181717?style=for-the-badge&logo=github" alt="GitHub Profile">
-  </a>
-</p>
-
----
-
-<p align="center">
-  <b>Built with Python, Machine Learning, and a focus on safer job searching.</b>
-</p>
+**Abdullah Al Noman** · M.Sc. Medical Engineering (Medical Robotics), FAU Erlangen-Nürnberg
+[GitHub](https://github.com/Noman87370)

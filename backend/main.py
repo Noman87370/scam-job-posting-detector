@@ -18,11 +18,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import config
-from .database import Base, engine, get_db
+from .database import Base, engine, ensure_job_columns, get_db
 from .ingest import ingest_arbeitnow
 from .ml import ModelNotAvailable, model_info, predict
 from .models import IngestRun, Job
 from .schemas import (
+    DISCLAIMER,
     IngestOut,
     JobOut,
     JobsPage,
@@ -35,6 +36,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 Base.metadata.create_all(bind=engine)
+try:
+    ensure_job_columns()
+except Exception:  # noqa: BLE001 — a missing column must never block startup
+    logger.exception("Could not ensure jobs table columns; continuing")
 
 _scheduler = None
 
@@ -57,11 +62,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Scam Job Posting Detector",
     description=(
-        "AI-powered job search with fraud detection. Predictions are risk "
-        "estimates from a TF-IDF + logistic regression model trained on the "
-        "Kaggle Real/Fake Job Posting dataset — never a definitive verdict."
+        "Scam Job Posting Detector (English postings). Paste an English "
+        "job posting and get a risk estimate from a TF-IDF + logistic "
+        "regression model trained on the Kaggle Real/Fake Job Posting "
+        "dataset. Scores are risk estimates, never a definitive verdict. "
+        "The live job listings come from the Arbeitnow API (Germany)."
     ),
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -90,7 +97,9 @@ def _job_out(job: Job) -> JobOut:
         "posted_at": job.posted_at,
         "fetched_at": job.fetched_at,
         "fraud_probability": job.fraud_probability,
+        "decision_score": job.decision_score,
         "risk_band": job.risk_band,
+        "language": job.language,
         "indicators": json.loads(job.indicators or "{}"),
         "expired": job.expired,
     }
@@ -153,13 +162,53 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
     return _job_out(job)
 
 
+# Paste-in form limits: at least 100 characters in total (the model
+# needs real text), at most 10,000 (keeps one request small on the
+# free tier). Ingested listings are not subject to this limit.
+MIN_INPUT_CHARS = 100
+MAX_INPUT_CHARS = 10_000
+
+_INPUT_TEXT_FIELDS = (
+    "title", "company", "description", "requirements", "benefits",
+    "company_profile", "location", "salary_range",
+)
+
+
 @app.post("/api/predict", response_model=PredictOut)
 def predict_posting(payload: PredictIn):
+    fields = payload.model_dump()
+    total_chars = sum(len(str(fields.get(f) or "")) for f in _INPUT_TEXT_FIELDS)
+    if total_chars < MIN_INPUT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Please enter at least {MIN_INPUT_CHARS} characters in total "
+                   f"({total_chars} given).",
+        )
+    if total_chars > MAX_INPUT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Please keep the total input under {MAX_INPUT_CHARS} characters "
+                   f"({total_chars} given).",
+        )
     try:
-        result = predict(payload.model_dump())
+        result = predict(fields)
     except ModelNotAvailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    return PredictOut(**result)
+    # The checker response carries no fraud probability (it is not a
+    # "% chance of scam"); predict() keeps it internally for the feed.
+    return PredictOut(
+        decision_score=result["decision_score"],
+        risk_band=result["risk_band"],
+        risk_label=result["risk_label"],
+        threshold=result["threshold"],
+        top_raising=result["top_raising"],
+        top_lowering=result["top_lowering"],
+        indicators=result["indicators"],
+        language=result["language"],
+        language_ok=result["language_ok"],
+        language_message=result["language_message"],
+        disclaimer=DISCLAIMER,
+    )
 
 
 @app.post("/api/jobs/ingest", response_model=IngestOut)

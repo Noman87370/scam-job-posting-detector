@@ -18,10 +18,18 @@ Mapping:
 Germany focus: keep a listing only if its location is in Germany (or a
 German city) or it is remote with no non-German location.
 
-Metadata flags for the model are computed from the raw text with regex
-(URL/email/phone present, missing profile/requirements, salary present,
-text length) because Kaggle's anonymised #URL_/#EMAIL_/#PHONE_ tokens do
-not exist in live data — see common.features.
+Metadata flags for the model are computed from the text exactly as in
+training (see common.features): real URLs, emails and phone numbers
+are first converted to the Kaggle-style placeholders, then the flags
+are placeholder presence. The Arbeitnow API does not return a company
+profile or requirements, so no_profile / no_requirements are 1 for
+every ingested listing — the model sees those listings as thinner
+than a full posting.
+
+Language: the model was trained on English only. Each listing's
+language is detected at ingest and stored; the dashboard shows a risk
+band only for English listings. Rows ingested before the language
+column existed are backfilled on the next ingest run.
 
 Dedupe: (source, external_id) unique; also normalised
 (title, company, location) across sources.
@@ -32,6 +40,7 @@ Listings are never deleted.
 """
 
 import json
+import math
 import os
 import re
 import ssl
@@ -42,7 +51,8 @@ from sqlalchemy.orm import Session
 
 from .config import ARBEITNOW_API, ARBEITNOW_MAX_PAGES
 from .database import SessionLocal
-from .ml import predict
+from .language import detect_language
+from .ml import predict, risk_band
 from .models import IngestRun, Job
 
 SOURCE = "arbeitnow"
@@ -161,6 +171,37 @@ def fetch_arbeitnow(max_pages: int = ARBEITNOW_MAX_PAGES) -> list[dict]:
     return jobs
 
 
+def _backfill_scores(db: Session) -> int:
+    """Fill language / decision_score / risk_band on older rows.
+
+    Rows ingested before those columns existed have NULLs. Language is
+    detected from the stored text; the decision score is recovered
+    exactly from the stored probability (for logistic regression,
+    score = log(p / (1 - p))), and the band follows from the score.
+    Runs once per row — later runs find nothing to do.
+    """
+    rows = db.query(Job).filter(
+        (Job.language.is_(None)) | (Job.decision_score.is_(None))
+    ).all()
+    updated = 0
+    for job in rows:
+        try:
+            if job.language is None:
+                job.language = detect_language(
+                    f"{job.title or ''} {job.description or ''}"
+                )
+            if job.decision_score is None:
+                p = min(max(float(job.fraud_probability or 0.0), 1e-6), 1 - 1e-6)
+                job.decision_score = round(math.log(p / (1 - p)), 4)
+                job.risk_band = risk_band(job.decision_score)
+            updated += 1
+        except Exception:  # noqa: BLE001 — one bad row must not stop the pass
+            continue
+    if updated:
+        db.commit()
+    return updated
+
+
 def ingest_arbeitnow(db: Session | None = None) -> dict:
     """Fetch, filter, score and store. Returns counts.
 
@@ -173,6 +214,11 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
     run = IngestRun(source=SOURCE, started_at=now)
     db.add(run)
     db.commit()
+    # Backfill older rows (language / decision_score) before fetching.
+    try:
+        _backfill_scores(db)
+    except Exception:  # noqa: BLE001 — backfill must never block ingestion
+        db.rollback()
     counts = {"fetched": 0, "kept": 0, "inserted": 0, "updated": 0,
               "duplicates": 0, "expired_marked": 0}
     # Normalised keys of all active jobs, for the cross-source dup check.
@@ -223,10 +269,11 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
             }
             score = predict(fields)
             indicators_json = json.dumps({
-                "top_fraud_words": score["top_fraud_words"],
-                "top_legit_words": score["top_legit_words"],
+                "top_raising": score["top_raising"],
+                "top_lowering": score["top_lowering"],
                 "indicators": score["indicators"],
             })
+            job_language = score["language"]
             existing = db.query(Job).filter(
                 Job.source == SOURCE, Job.external_id == external_id
             ).first()
@@ -241,7 +288,9 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
                 existing.posted_at = posted_at
                 existing.fetched_at = now
                 existing.fraud_probability = score["fraud_probability"]
+                existing.decision_score = score["decision_score"]
                 existing.risk_band = score["risk_band"]
+                existing.language = job_language
                 existing.indicators = indicators_json
                 existing.expired = False
                 counts["updated"] += 1
@@ -259,7 +308,9 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
                 category=category, employment_type_raw=", ".join(job_types),
                 posted_at=posted_at, fetched_at=now,
                 fraud_probability=score["fraud_probability"],
-                risk_band=score["risk_band"], indicators=indicators_json,
+                decision_score=score["decision_score"],
+                risk_band=score["risk_band"], language=job_language,
+                indicators=indicators_json,
                 expired=False,
             ))
             counts["inserted"] += 1

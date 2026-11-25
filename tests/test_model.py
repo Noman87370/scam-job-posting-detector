@@ -1,9 +1,6 @@
-"""Model tests — these load the retrained artifacts in model/.
+"""Model tests — these load the artifacts in model/.
 
-NOTE (2026-11-25): these tests were written but NOT run in the build
-session, because a runtime execution-risk flag was raised on the
-.joblib (pickle) artifacts and loading them was blocked pending a
-go-ahead. Run them with:  .venv/bin/python -m pytest tests/test_model.py -v
+Run them with:  .venv/bin/python -m pytest tests/test_model.py -v
 """
 
 import os
@@ -32,7 +29,7 @@ FAKE_STYLE = {
 
 LEGIT_STYLE = {
     "title": "Werkstudent Data Analysis (m/w/d)",
-    "company": "Siemens AG",
+    "company": "Harborview Analytics GmbH",
     "description": (
         "As a working student in our Data Analytics team in Erlangen you will "
         "support data collection, validation and reporting with SQL and "
@@ -44,8 +41,8 @@ LEGIT_STYLE = {
     ),
     "benefits": "Flexible working hours, hybrid working model, mentoring",
     "company_profile": (
-        "Siemens AG is a global technology company focused on industry, "
-        "infrastructure, transport and healthcare."
+        "Harborview Analytics is a mid-sized software company focused on "
+        "data tools for manufacturers, based in Erlangen."
     ),
     "location": "Erlangen, Germany",
     "salary_range": "",
@@ -56,36 +53,64 @@ LEGIT_STYLE = {
 
 
 @pytest.mark.skipif(
-    not os.path.exists("model/logreg_model.joblib"),
+    not os.path.exists("model/model_artifacts.joblib")
+    and not os.path.exists("model/logreg_model.joblib"),
     reason="model artifacts not present",
 )
-def test_predict_returns_probability_in_range():
+def test_predict_returns_score_and_band():
     result = predict(LEGIT_STYLE)
-    assert 0.0 <= result["fraud_probability"] <= 1.0
-    assert result["risk_band"] in ("low", "medium", "high")
-    assert "top_fraud_words" in result
+    assert isinstance(result["decision_score"], float)
+    assert result["risk_band"] in ("high", "some", "few")
+    assert result["risk_label"] in (
+        "High risk", "Some warning signs", "Few warning signs")
+    assert result["threshold"] == 0.949
+    assert "top_raising" in result
+    assert "top_lowering" in result
     assert "indicators" in result
-    assert "disclaimer" in result or True  # disclaimer lives in the schema
+    assert result["language_ok"] is True
 
 
 @pytest.mark.skipif(
-    not os.path.exists("model/logreg_model.joblib"),
+    not os.path.exists("model/model_artifacts.joblib")
+    and not os.path.exists("model/logreg_model.joblib"),
     reason="model artifacts not present",
 )
 def test_fake_style_scores_higher_than_legit():
     fake = predict(FAKE_STYLE)
     legit = predict(LEGIT_STYLE)
-    assert fake["fraud_probability"] > legit["fraud_probability"]
-    assert fake["fraud_probability"] > 0.5
-    assert legit["fraud_probability"] < 0.5
+    assert fake["decision_score"] > legit["decision_score"]
+    assert fake["risk_band"] == "high"
+    assert legit["risk_band"] == "few"
+    assert fake["decision_score"] >= 0.949
+    assert legit["decision_score"] < 0
 
 
 @pytest.mark.skipif(
-    not os.path.exists("model/logreg_model.joblib"),
+    not os.path.exists("model/model_artifacts.joblib")
+    and not os.path.exists("model/logreg_model.joblib"),
     reason="model artifacts not present",
 )
-def test_model_info_matches_metrics():
+def test_contributions_are_readable_and_signed():
+    result = predict(FAKE_STYLE)
+    assert len(result["top_raising"]) <= 5
+    assert len(result["top_lowering"]) <= 3
+    assert all(c["contribution"] > 0 for c in result["top_raising"])
+    assert all(c["contribution"] < 0 for c in result["top_lowering"])
+    # No raw meta column names leak into the explanation.
+    names = [c["feature"] for c in result["top_raising"] + result["top_lowering"]]
+    assert "no_profile" not in names
+    assert "has_company_logo" not in names
+    assert "no company profile provided" in names
+
+
+@pytest.mark.skipif(
+    not os.path.exists("model/model_artifacts.joblib")
+    and not os.path.exists("model/logreg_model.joblib"),
+    reason="model artifacts not present",
+)
+def test_model_info_reports_notebook_threshold():
     info = model_info()
     assert info["model"] is not None
-    assert info["probability_threshold"] > 0.5
+    assert "LogisticRegression" in info["model"]
+    assert info["decision_threshold"] == 0.949
     assert info["metrics"]["pr_auc"] > 0.85

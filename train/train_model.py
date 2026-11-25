@@ -19,7 +19,10 @@ Pipeline (notebook cells 7-15, 22):
     rules are mathematically identical.
 
 Outputs (model/):
-  tfidf_vectorizer.joblib, logreg_model.joblib, metadata.json, METRICS.md
+  tfidf_vectorizer.joblib, logreg_model.joblib, metadata.json, METRICS.md,
+  model_artifacts.joblib — the single-file bundle the app loads
+  ({"vec", "model", "meta_cols", "threshold", "feature_names"}), the
+  same dict the notebook cell in the README exports.
 
 Usage:  .venv/bin/python train/train_model.py
 """
@@ -160,6 +163,18 @@ def main() -> None:
     os.makedirs(MODEL_DIR, exist_ok=True)
     joblib.dump(vec, os.path.join(MODEL_DIR, "tfidf_vectorizer.joblib"))
     joblib.dump(best, os.path.join(MODEL_DIR, "logreg_model.joblib"))
+    # Single-file bundle the app loads (same dict as the notebook
+    # export cell in the README). The threshold stored here is this
+    # run's tuned threshold t.
+    feature_names = list(vec.get_feature_names_out()) + META_COLS
+    joblib.dump(
+        {"vec": vec, "model": best, "meta_cols": META_COLS,
+         "threshold": float(t), "feature_names": feature_names},
+        os.path.join(MODEL_DIR, "model_artifacts.joblib"),
+    )
+    import sklearn
+
+    print(f"scikit-learn version: {sklearn.__version__}")
     metadata = {
         "dataset": "shivamb/real-or-fake-fake-jobposting-prediction (Kaggle)",
         "dataset_file": os.path.basename(path),

@@ -1,8 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 
+// Reported results on the English test set (3,139 postings, 141 fake).
+// These are the notebook's numbers — the only metrics shown anywhere
+// in the UI. (The retrained model's own measurements live in
+// model/METRICS.md.)
+const NOTEBOOK_METRICS = {
+  precision: '93.1%',
+  recall: '76.6%',
+  prAuc: '0.917',
+  caught: '108 of 141',
+  falseAlarms: '8',
+  testSize: '3,139',
+}
+
+const DISCLAIMER =
+  'This is a statistical estimate, not proof. The model misses about ' +
+  '1 in 4 scams and can flag real postings.'
+
 const CATEGORIES = ['', 'Werkstudent', 'Internship', 'Part-time', 'Full-time', 'Other']
-const RISK_BANDS = ['', 'low', 'medium', 'high']
+const RISK_BANDS = [
+  { value: '', label: 'Any risk level' },
+  { value: 'high', label: 'High risk' },
+  { value: 'some', label: 'Some warning signs' },
+  { value: 'few', label: 'Few warning signs' },
+]
 const SORTS = [
   { value: 'newest', label: 'Newest first' },
   { value: 'oldest', label: 'Oldest first' },
@@ -10,17 +32,70 @@ const SORTS = [
   { value: 'risk_asc', label: 'Lowest risk first' },
 ]
 
-function RiskMeter({ probability, band }) {
-  const pct = Math.round(probability * 100)
+const BAND_LABELS = {
+  high: 'High risk',
+  some: 'Some warning signs',
+  few: 'Few warning signs',
+}
+
+// Fictional example postings (no real company names). The scam-like
+// one is deliberately loud; the normal one is an ordinary working
+// student ad. Both load into the form so visitors can see how the
+// fields map to the model.
+const EXAMPLES = {
+  scam: {
+    title: 'Earn $4,500 per week working from home — no experience needed',
+    company: 'BrightPath Rewards',
+    location: 'Remote',
+    description:
+      'Urgent hiring! Work from home and earn $4,500 per week with no ' +
+      'experience needed. Just pay a small registration fee of $99 to start ' +
+      'immediately. Send the money via wire transfer now — limited positions, ' +
+      'apply today! Contact us on WhatsApp +1 555 010 2030 or email ' +
+      'apply@brightpath-rewards.example to get started and earn money fast.',
+    requirements: '',
+    benefits: 'Unlimited income, work from home, no experience needed',
+    company_profile: '',
+    salary_range: '$4,500 per week',
+    telecommuting: true,
+    has_company_logo: false,
+    has_questions: false,
+    has_salary: true,
+  },
+  normal: {
+    title: 'Working Student Data Analyst (m/f/d)',
+    company: 'Harborview Analytics GmbH',
+    location: 'Erlangen, Germany',
+    description:
+      'As a working student in our Data Analytics team in Erlangen you will ' +
+      'support data collection, validation and reporting with SQL and Power ' +
+      'BI. You will document your results, present them to the team in our ' +
+      'weekly meeting, and help maintain our dashboards. The role is 15 to ' +
+      '20 hours per week, with flexible hours around your lectures and a ' +
+      'hybrid working model.',
+    requirements:
+      'Enrolled student in computer science, data science or a related ' +
+      'field. Knowledge of Python and SQL. Good English skills; German is ' +
+      'a plus but not required.',
+    benefits: 'Flexible working hours, hybrid working model, mentoring, €16 per hour',
+    company_profile:
+      'Harborview Analytics is a mid-sized software company in Erlangen ' +
+      'that builds data tools for manufacturers. Our team of 40 works ' +
+      'closely with customers across Germany.',
+    salary_range: '€16 per hour',
+    telecommuting: true,
+    has_company_logo: true,
+    has_questions: true,
+    has_salary: true,
+  },
+}
+
+function RiskBadge({ band, score }) {
   return (
-    <div className="risk" title={`Fraud probability ${pct}% — risk band: ${band}`}>
-      <div className="risk-bar">
-        <div className={`risk-fill risk-${band}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className={`risk-badge risk-${band}`}>
-        {band.toUpperCase()} · {pct}%
-      </span>
-    </div>
+    <span className={`risk-badge risk-${band}`} title={score != null ? `Decision score ${score}` : ''}>
+      {BAND_LABELS[band] || band}
+      {score != null ? ` · score ${score}` : ''}
+    </span>
   )
 }
 
@@ -31,10 +106,21 @@ function fmtDate(iso) {
   })
 }
 
+function fmtContribution(c) {
+  return c > 0 ? `+${c}` : `${c}`
+}
+
 function JobCard({ job }) {
   const [open, setOpen] = useState(false)
   const indicators = job.indicators || {}
   const present = (indicators.indicators || []).filter((i) => i.present)
+  // New explanation keys; fall back to the older stored shape.
+  const raising = indicators.top_raising
+    || (indicators.top_fraud_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
+  const lowering = indicators.top_lowering
+    || (indicators.top_legit_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
+  const notEnglish = job.language && job.language !== 'en'
+
   return (
     <article className="card">
       <div className="card-head">
@@ -45,7 +131,13 @@ function JobCard({ job }) {
           </p>
           <p className="meta small">Posted {fmtDate(job.posted_at)} · Source: {job.source}</p>
         </div>
-        <RiskMeter probability={job.fraud_probability} band={job.risk_band} />
+        {notEnglish ? (
+          <span className="risk-badge risk-unknown" title="The model was trained on English postings only">
+            Not scored — not in English
+          </span>
+        ) : (
+          <RiskBadge band={job.risk_band} score={job.decision_score} />
+        )}
       </div>
       <p className="snippet">
         {(job.description || '').slice(0, 220)}
@@ -62,16 +154,26 @@ function JobCard({ job }) {
       </div>
       {open && (
         <div className="details">
-          <h4>Top signals</h4>
-          {(indicators.top_fraud_words || []).length > 0 && (
-            <p><strong>Pushing towards fraud:</strong>{' '}
-              {(indicators.top_fraud_words || []).map((w) => `${w.word} (+${w.contribution})`).join(', ')}
+          {notEnglish ? (
+            <p className="lang-warning">
+              This model was trained on English postings, so the result would be unreliable.
+              No risk level is shown for this listing.
             </p>
-          )}
-          {(indicators.top_legit_words || []).length > 0 && (
-            <p><strong>Pushing towards legitimate:</strong>{' '}
-              {(indicators.top_legit_words || []).map((w) => `${w.word} (${w.contribution})`).join(', ')}
-            </p>
+          ) : (
+            <>
+              <h4>What pushed the score up</h4>
+              {raising.length > 0 ? (
+                <p>{raising.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
+              ) : (
+                <p>Nothing pushed the score up.</p>
+              )}
+              <h4>What pushed the score down</h4>
+              {lowering.length > 0 ? (
+                <p>{lowering.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
+              ) : (
+                <p>Nothing pushed the score down.</p>
+              )}
+            </>
           )}
           <h4>Indicators checked</h4>
           <ul>
@@ -83,32 +185,47 @@ function JobCard({ job }) {
           </ul>
           <h4>Description</h4>
           <p className="full-desc">{job.description}</p>
-          <p className="disclaimer">
-            This is a risk estimate from a machine-learning model, not a definitive
-            verdict. Always verify a posting through the employer&apos;s own channels
-            before applying or sharing personal data.
-          </p>
+          <p className="disclaimer">{DISCLAIMER}</p>
         </div>
       )}
     </article>
   )
 }
 
+const EMPTY_FORM = {
+  title: '', company: '', location: '', description: '',
+  requirements: '', benefits: '', company_profile: '', salary_range: '',
+  telecommuting: false, has_company_logo: false, has_questions: false,
+  has_salary: false,
+}
+
+const TEXT_FIELDS = [
+  'title', 'company', 'location', 'description',
+  'requirements', 'benefits', 'company_profile', 'salary_range',
+]
+
 function CheckPosting() {
-  const [form, setForm] = useState({
-    title: '', company: '', location: '', description: '',
-    requirements: '', benefits: '', company_profile: '', salary_range: '',
-    telecommuting: false, has_company_logo: false, has_questions: false,
-  })
+  const [form, setForm] = useState(EMPTY_FORM)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const totalChars = TEXT_FIELDS.reduce((n, k) => n + (form[k] || '').length, 0)
+  const tooShort = totalChars < 100
+  const tooLong = totalChars > 10000
+
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
+  function loadExample(kind) {
+    setForm({ ...EMPTY_FORM, ...EXAMPLES[kind] })
+    setResult(null)
+    setError('')
+  }
+
   async function submit(e) {
     e.preventDefault()
+    if (tooShort || tooLong) return
     setBusy(true)
     setError('')
     setResult(null)
@@ -118,7 +235,10 @@ function CheckPosting() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
-      if (!res.ok) throw new Error(`Server returned ${res.status}`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Server returned ${res.status}`)
+      }
       setResult(await res.json())
     } catch (err) {
       setError(`Could not score this posting: ${err.message}`)
@@ -130,7 +250,15 @@ function CheckPosting() {
   return (
     <section className="checker">
       <h2>Check a posting</h2>
-      <p>Paste a job ad and get a fraud risk estimate with an explanation.</p>
+      <p>
+        Fill in the fields of a job ad — the model uses the same fields it
+        was trained on. English postings only.
+      </p>
+      <div className="examples">
+        <span>Try an example:</span>
+        <button type="button" onClick={() => loadExample('scam')}>Scam-like example (fictional)</button>
+        <button type="button" onClick={() => loadExample('normal')}>Normal example (fictional)</button>
+      </div>
       <form onSubmit={submit}>
         <div className="grid2">
           <input placeholder="Job title" value={form.title} onChange={set('title')} />
@@ -142,27 +270,40 @@ function CheckPosting() {
         <textarea placeholder="Requirements" rows={3} value={form.requirements} onChange={set('requirements')} />
         <textarea placeholder="Benefits" rows={2} value={form.benefits} onChange={set('benefits')} />
         <textarea placeholder="Company profile (if the ad has one)" rows={2} value={form.company_profile} onChange={set('company_profile')} />
-        <label className="check"><input type="checkbox" checked={form.telecommuting} onChange={set('telecommuting')} /> Remote / telecommuting</label>
+        <label className="check"><input type="checkbox" checked={form.telecommuting} onChange={set('telecommuting')} /> Remote work</label>
         <label className="check"><input type="checkbox" checked={form.has_company_logo} onChange={set('has_company_logo')} /> Company logo shown</label>
-        <label className="check"><input type="checkbox" checked={form.has_questions} onChange={set('has_questions')} /> Application questions present</label>
-        <button type="submit" disabled={busy}>{busy ? 'Scoring…' : 'Check this posting'}</button>
+        <label className="check"><input type="checkbox" checked={form.has_questions} onChange={set('has_questions')} /> Screening questions</label>
+        <label className="check"><input type="checkbox" checked={form.has_salary} onChange={set('has_salary')} /> Salary stated</label>
+        <p className="char-count">
+          {totalChars.toLocaleString()} / 10,000 characters
+          {tooShort && ' — enter at least 100 characters in total.'}
+          {tooLong && ' — keep the total under 10,000 characters.'}
+        </p>
+        <button type="submit" disabled={busy || tooShort || tooLong}>{busy ? 'Scoring…' : 'Check this posting'}</button>
       </form>
+      <p className="privacy">Text you enter is processed only to compute the result and is not stored.</p>
+      {busy && <p>Scoring… the free host may need up to a minute to wake up on first load.</p>}
       {error && <p className="error">{error}</p>}
-      {result && (
+      {result && !result.language_ok && (
         <div className="result">
-          <RiskMeter probability={result.fraud_probability} band={result.risk_band} />
+          <p className="lang-warning">{result.language_message}</p>
+          <p className="disclaimer">{DISCLAIMER}</p>
+        </div>
+      )}
+      {result && result.language_ok && (
+        <div className="result">
+          <RiskBadge band={result.risk_band} score={result.decision_score} />
           <p>
-            Estimated fraud probability: <strong>{Math.round(result.fraud_probability * 100)}%</strong>
-            {' '}· Risk band: <strong>{result.risk_band}</strong>
-            {' '}· Model threshold for “high”: {Math.round(result.probability_threshold * 100)}%
+            Decision score: <strong>{result.decision_score}</strong>
+            {' '}· “High risk” starts at <strong>{result.threshold}</strong>
           </p>
-          {(result.top_fraud_words || []).length > 0 && (
-            <p><strong>Words pushing towards fraud:</strong>{' '}
-              {result.top_fraud_words.map((w) => `${w.word} (+${w.contribution})`).join(', ')}</p>
+          {(result.top_raising || []).length > 0 && (
+            <p><strong>What pushed the score up:</strong>{' '}
+              {result.top_raising.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
           )}
-          {(result.top_legit_words || []).length > 0 && (
-            <p><strong>Words pushing towards legitimate:</strong>{' '}
-              {result.top_legit_words.map((w) => `${w.word} (${w.contribution})`).join(', ')}</p>
+          {(result.top_lowering || []).length > 0 && (
+            <p><strong>What pushed the score down:</strong>{' '}
+              {result.top_lowering.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
           )}
           <ul>
             {result.indicators.map((i) => (
@@ -222,8 +363,9 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>🛡️ Scam Job Detector</h1>
-        <p>AI-powered job search for Germany — every listing scored for fraud risk.</p>
+        <h1>🛡️ Scam Job Posting Detector (English postings)</h1>
+        <p>Paste an English job posting and get a risk estimate — or browse live German job listings, scored with the same model.</p>
+        <p className="wake">Free hosting: the first load after a pause can take up to a minute to wake up.</p>
         {stats && (
           <p className="stats-line">
             {stats.active_jobs} active jobs · {stats.total_jobs} total ingested
@@ -245,7 +387,7 @@ export default function App() {
         </select>
         <select value={riskBand} onChange={(e) => { setRiskBand(e.target.value); setPage(1) }}>
           {RISK_BANDS.map((r) => (
-            <option key={r} value={r}>{r ? `Risk: ${r}` : 'Any risk level'}</option>
+            <option key={r.value} value={r.value}>{r.label}</option>
           ))}
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
@@ -253,7 +395,7 @@ export default function App() {
         </select>
       </section>
 
-      {loading && <p>Loading jobs…</p>}
+      {loading && <p>Loading jobs… the free host may need up to a minute to wake up on first load.</p>}
       {error && <p className="error">{error}</p>}
       {!loading && !error && total === 0 && (
         <p className="empty">
@@ -281,8 +423,16 @@ export default function App() {
       <footer>
         <p>
           Model: TF-IDF (1–2 grams) + logistic regression, trained on the Kaggle
-          “Real / Fake Job Posting Prediction” dataset (17,880 postings).
-          Scores are risk estimates, not definitive verdicts.
+          “Real / Fake Job Posting Prediction” dataset (17,880 postings; test set{' '}
+          {NOTEBOOK_METRICS.testSize}, of which 141 fake). Reported results: precision{' '}
+          {NOTEBOOK_METRICS.precision}, recall {NOTEBOOK_METRICS.recall}, PR-AUC{' '}
+          {NOTEBOOK_METRICS.prAuc} — {NOTEBOOK_METRICS.caught} fake postings caught,{' '}
+          {NOTEBOOK_METRICS.falseAlarms} false alarms among 2,998 real postings.
+        </p>
+        <p>English postings only. {DISCLAIMER}</p>
+        <p>
+          Job listings via <a href="https://www.arbeitnow.com">Arbeitnow</a> (free public API).
+          Text you enter is processed only to compute the result and is not stored.
         </p>
       </footer>
     </div>

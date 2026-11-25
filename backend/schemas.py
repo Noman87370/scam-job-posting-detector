@@ -1,9 +1,20 @@
-"""Pydantic schemas for the API."""
+"""Pydantic schemas for the API.
+
+The checker returns a decision score and a risk band — never a
+probability presented as a "% chance of scam". The fraud probability
+is kept on stored jobs only, for sorting; it is not part of the
+checker response.
+"""
 
 from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+DISCLAIMER = (
+    "This is a statistical estimate, not proof. The model misses about "
+    "1 in 4 scams and can flag real postings."
+)
 
 
 class JobOut(BaseModel):
@@ -19,7 +30,9 @@ class JobOut(BaseModel):
     posted_at: Optional[datetime] = None
     fetched_at: datetime
     fraud_probability: float
+    decision_score: Optional[float] = None
     risk_band: str
+    language: Optional[str] = None
     indicators: dict = {}
     expired: bool
 
@@ -45,6 +58,9 @@ class PredictIn(BaseModel):
     telecommuting: bool = False
     has_company_logo: bool = False
     has_questions: bool = False
+    # "Salary stated in the posting" checkbox; has_salary is also set
+    # when a salary_range value is given (see common.features).
+    has_salary: bool = False
 
 
 class Indicator(BaseModel):
@@ -54,18 +70,23 @@ class Indicator(BaseModel):
     present: bool
 
 
+class Contribution(BaseModel):
+    feature: str
+    contribution: float
+
+
 class PredictOut(BaseModel):
-    fraud_probability: float = Field(ge=0.0, le=1.0)
-    risk_band: str
-    probability_threshold: float
-    top_fraud_words: list[dict[str, Any]] = []
-    top_legit_words: list[dict[str, Any]] = []
+    decision_score: float
+    risk_band: str  # high | some | few
+    risk_label: str  # "High risk" | "Some warning signs" | "Few warning signs"
+    threshold: float  # decision-function score for "high risk" (0.949)
+    top_raising: list[Contribution] = []
+    top_lowering: list[Contribution] = []
     indicators: list[Indicator] = []
-    disclaimer: str = (
-        "This is a risk estimate from a machine-learning model, not a "
-        "definitive verdict. Always verify a posting through the employer's "
-        "own channels before applying or sharing personal data."
-    )
+    language: Optional[str] = None
+    language_ok: bool = True
+    language_message: str = ""
+    disclaimer: str = DISCLAIMER
 
 
 class IngestOut(BaseModel):

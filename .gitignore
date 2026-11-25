@@ -11,4 +11,5 @@ node_modules/
 backend/static/
 data/
 model/*.joblib
+!model/model_artifacts.joblib
 .DS_Store
