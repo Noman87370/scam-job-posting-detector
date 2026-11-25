@@ -1,0 +1,32 @@
+# Render Blueprint — deploys the whole platform as one free web service
+# plus a free Postgres database. Apply with `render blueprint` or by
+# connecting the repo in the Render dashboard (see DEPLOYMENT.md).
+
+services:
+  - type: web
+    name: scam-job-detector
+    runtime: python
+    plan: free
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      pip install -r train/requirements.txt &&
+      python train/train_model.py &&
+      cd frontend && npm install --no-audit --no-fund && npm run build && cd ..
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: RUN_SCHEDULER
+        value: "true"
+      - key: INGEST_INTERVAL_MINUTES
+        value: "30"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scam-jobs-db
+          property: connectionString
+      - key: INGEST_TOKEN
+        generateValue: true
+
+databases:
+  - name: scam-jobs-db
+    plan: free

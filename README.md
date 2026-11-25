@@ -67,6 +67,72 @@ pip install -r requirements.txt
 jupyter notebook scam_job_detector.ipynb
 ```
 
+## Platform
+
+The research above is now a running web app: an AI job search for
+Germany that scores every listing for fraud risk. The model was
+retrained from the notebook pipeline by `train/train_model.py` and the
+retrained metrics are in `model/METRICS.md` (PR-AUC 0.914, precision
+93.9%, recall 75.9% — 107 of 141 fake caught, 7 false alarms, vs. the
+notebook's 0.917 / 93.1% / 76.6%). The "Gradio demo" idea from Future
+Improvements is implemented as the in-app **Check a posting** tool.
+
+**What it does**
+
+- **Dashboard** — live job postings from the Arbeitnow API, filtered to
+  Germany / remote-with-Germany, each with a fraud-probability meter,
+  risk band (low/medium/high), risk explanation, and the original apply
+  link. Search by title/company/location, filter by category
+  (Werkstudent, Internship, Part-time, Full-time) and risk, sort by
+  date or risk.
+- **Check a posting** — paste any job ad and get a risk score with the
+  top contributing words and rule-based indicators.
+- **Ingestion** — every 30 minutes (in-process scheduler + GitHub
+  Actions cron), with deduping and expiry handling. No mock or
+  placeholder jobs: if nothing has been ingested yet, the dashboard
+  says so honestly.
+- **Predictions are risk estimates, never a verdict** — the model was
+  trained on 2019-era data and scam wording changes over time.
+
+**Run locally**
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env        # set INGEST_TOKEN
+uvicorn backend.main:app --reload --port 8000
+# open http://localhost:8000
+```
+
+Frontend development (optional — the backend serves the production
+build from `backend/static`):
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+**API**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Status + whether the model loaded |
+| GET | `/api/jobs` | List jobs (`q`, `category`, `risk_band`, `min_risk`, `max_risk`, `sort`, `page`, `per_page`) |
+| GET | `/api/jobs/{id}` | One job |
+| POST | `/api/predict` | Score a pasted posting (probability, risk band, top words, indicators) |
+| POST | `/api/jobs/ingest` | Trigger ingestion (header `X-Ingest-Token`) |
+| GET | `/api/stats` | Totals by category and risk band |
+
+**Deploy** — see `DEPLOYMENT.md` (Render Blueprint + GitHub Actions
+cron). **Architecture** — see `ARCHITECTURE.md`.
+
+**Tests**
+
+```bash
+.venv/bin/python -m pytest tests/test_api.py tests/test_ingest.py -v
+# tests/test_model.py loads the saved model artifacts; run it separately:
+.venv/bin/python -m pytest tests/test_model.py -v
+```
+
 ## Results
 Model comparison on the test set (before threshold tuning):
 
@@ -102,8 +168,19 @@ Final model (Logistic Regression) at the tuned threshold on the test set:
 
 ## Repository Structure
 ```
-├── scam_job_detector.ipynb
-├── requirements.txt
+├── scam-job-posting-detector.ipynb   # original research notebook
+├── backend/          # FastAPI app: API, ingestion, scheduler, ML serving
+├── common/           # shared text-cleaning / metadata features
+├── train/            # train_model.py — reproduces the notebook pipeline
+├── frontend/         # React + Vite dashboard (builds to backend/static)
+├── model/            # retrained artifacts + METRICS.md
+├── tests/            # pytest suite
+├── .github/workflows/ingest.yml     # 30-minute ingestion cron
+├── Dockerfile        # multi-stage build (Node + Python)
+├── render.yaml       # Render Blueprint (web service + Postgres)
+├── requirements.txt  # backend runtime dependencies
+├── DEPLOYMENT.md     # exact deploy steps
+├── ARCHITECTURE.md   # stack, data flow, model, API contract
 └── README.md
 ```
 
