@@ -1,205 +1,578 @@
-# Scam Job Posting Detector (English ML model + German warning-sign checker)
+# 🛡️ Scam Job Posting Detector
+### English ML Model + German Warning-Sign Detection
 
-Detects fraudulent job postings — English postings with an ML model trained in a Kaggle notebook, German postings with a transparent rule-based warning-sign checker — with a live job feed scored the same way.
+An AI-powered job fraud detection platform that identifies potentially fraudulent job postings using two approaches: **Machine Learning for English postings** and **rule-based warning-sign detection for German postings**. Includes a live job search platform for Germany with automated risk assessment.
 
-## Live Demo
+<p align="center">
+  <a href="https://scam-job-detector-hob9.onrender.com">
+    <img src="https://img.shields.io/badge/🚀_Live_Demo-Try_Now-2ea44f?style=for-the-badge" alt="Live Demo">
+  </a>
+</p>
 
-Try it at https://scam-job-detector-hob9.onrender.com. The demo runs on Render's free tier, so the first load after a pause can take up to a minute to wake up. The interface is available in German and English (toggle at the top right; German by default when the browser language is German).
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-Machine_Learning-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react" alt="React">
+  <img src="https://img.shields.io/badge/scikit--learn-ML-orange?logo=scikitlearn" alt="Scikit-learn">
+  <img src="https://img.shields.io/badge/Tests-49_Passing-brightgreen?logo=pytest" alt="Tests">
+  <img src="https://img.shields.io/badge/Deployment-Render-purple?logo=render" alt="Render">
+</p>
 
-**What each mode does — and does not do:**
+---
 
-- **English postings** are scored by the ML model (TF-IDF + logistic regression, trained on the Kaggle "Real / Fake Job Posting Prediction" dataset). Reported results on the English test set: precision 93.1%, recall 76.6% — the model misses about 1 in 4 scams and can flag real postings. Treat every result as a rough estimate, not a verdict. Never a "% chance of scam".
-- **German postings** are checked against warning signs from German consumer advice centers (Verbraucherzentrale): demands for ID copies, video ident, opening a bank account, forwarding money or parcels, paying first, easy-money and task-scam wording, messenger-only contact, instant acceptance. This is a **rule-based check, not a model**: it has no ML metrics and is **not validated on labelled data**. A small synthetic sanity check (20 invented scam-like texts, 20 realistic legitimate ones) is in `tests/de_cases.csv` — it shows the rules work as intended on those examples, nothing more.
-- **Other languages** are not supported. Mixed German/English text, or text the detector cannot place, asks you to choose the posting language instead of guessing.
+## 🚀 Live Demo
 
-Paste an English or German job posting (or a message you received) into the "Check a posting" form, or browse the live German listings. Text you enter is processed only to compute the result and is not stored.
+**Application:** https://scam-job-detector-hob9.onrender.com
 
-## What it does
+The application is available in both English and German. German is selected by default when the browser language is German.
 
-- **Check a posting** — fill in the fields of a job ad (title, company profile, description, requirements, benefits, plus four checkboxes) and get a risk level with an explanation. The posting language can be Auto (detected), Deutsch or English. Two fictional examples per language can be loaded with one click. Text you enter is processed only to compute the result and is not stored.
-- **German warning-sign check** — for German postings, the rules in `backend/rules_de.py` (a plain data file) look for the warning signs listed above. Critical signs (ID/bank/forwarding/pay-first demands) mean "High risk", unless the sentence clearly describes a job duty or a right-to-work check at employment start — then the rule is downgraded to "mild" and the user sees why. The matched sentence is shown as evidence for every rule. Four optional checkboxes cover what the text alone cannot say (unsolicited offer, asked for ID/bank data, asked to open an account or pay, messenger-only contact). A "High risk" result adds an advice box: stop contact, do not send ID or bank data, keep evidence, report to the police or a consumer advice center.
-- **Live job listings** — real German job postings from the Arbeitnow API, refreshed every 30 minutes. Search by title, company or location; filter by category (Werkstudent, Internship, Part-time, Full-time) and risk level; sort by date or risk. Each listing links to the original posting. English listings are scored by the ML model, German listings by the rule checker.
-- **Risk levels, never a verdict** — "High risk", "Some warning signs" or "Few warning signs found". No band says "safe" or "not a scam", and no probability is shown as a "% chance of scam" (the probabilities are not calibrated). "Few warning signs found" is always followed by the line that this does not mean the offer is trustworthy.
-- **UI in German and English** — all visible text lives in one translations file (`frontend/src/i18n.js`, key -> {de, en}); German uses the formal "Sie".
+**Note:** The application runs on Render's free tier. After inactivity, the first load may take approximately 60 seconds while the service wakes up.
 
-## How detection works
+## 📌 Project Overview
 
-### English: ML model
+Online job scams are becoming increasingly sophisticated, making it difficult for job seekers to distinguish legitimate opportunities from fraudulent advertisements.
 
-TF-IDF (1–2 grams, 60k features) plus 10 metadata flags, fed into a Logistic Regression classifier (`C=5`, class-balanced). Before scoring, real URLs, email addresses and phone numbers in the input are converted to the placeholders the training data used (`#URL_x#`, `#EMAIL_x#`, `#PHONE_x#`), so the token features behave as in training.
+This project addresses the problem through two separate detection approaches:
 
-The decision rule is the notebook's: score = `model.decision_function(X)`; "High risk" starts at a score of **0.949** (a predicted probability of about 0.72). "Some warning signs" is 0 to 0.949, "Few warning signs" below 0.
+| Detection System | Approach | Language |
+|---|---|---|
+| Machine Learning Detector | TF-IDF + Logistic Regression | English |
+| Warning-Sign Detector | Rule-based analysis using regex | German |
 
-Reported results on the English test set (3,139 postings, 141 fake):
+Rather than applying an English-trained model to German advertisements, the platform uses a separate German warning-sign checker based on common fraud patterns identified by German consumer advice centers (Verbraucherzentrale).
 
-| PR-AUC | Precision | Recall | Fake caught | False alarms |
-|---|---|---|---|---|
-| 0.917 | 93.1% | 76.6% | 108 of 141 | 8 of 2,998 real |
+### Key Features
 
-The loaded model is the logistic regression from the notebook (the LinearSVC that was also compared is not used). The retrained model's own measurements (PR-AUC 0.914, precision 93.9%, recall 75.9%) are recorded in `model/METRICS.md` only — the UI shows the notebook's numbers above.
+- **AI-Powered Fraud Detection:** Uses TF-IDF and Logistic Regression to identify potentially fraudulent English job postings.
+- **German Scam Detection:** Identifies suspicious German job advertisements using transparent rule-based warning signs.
+- **Live Job Search:** Retrieves real job listings from Germany through the Arbeitnow API.
+- **Automated Risk Assessment:** Evaluates live job listings using the appropriate detection system.
+- **Explainable Results:** Shows contributing words, matched warning signs, and evidence sentences.
+- **Custom Job Analysis:** Paste a job advertisement or suspicious recruitment message for analysis.
+- **Smart Filtering:** Search by job title, company, and location; filter by employment category and risk level.
+- **Bilingual Interface:** Supports German and English.
+- **Privacy-Conscious Processing:** Text entered into the checking form is processed to calculate the result and is not stored.
 
-### German: rule-based warning-sign check (no ML)
+## 🧠 How Detection Works
 
-The German checker (`backend/de_rules.py`, rules in `backend/rules_de.py`) has no model and no metrics. It runs case-insensitive regexes over the text — handling umlaut spellings (ä/ae, ö/oe, ü/ue, ß/ss) and variants like Video-Ident / Videoident / Video Ident — and returns the matched sentence as evidence for each rule.
+The application uses different detection pipelines depending on the language of the job advertisement.
 
-- **Critical** (any one → "High risk"): asked to verify identity (Video-Ident, Identitätsprüfung, Personalausweis/Reisepass copy, Steuer-ID); asked to open or "test" a bank account (Partnerbank, Bank-Tester, Zugangsdaten, PIN, TAN); money or parcel forwarding (Finanzagent, Zahlungen weiterleiten, Provision pro Transaktion, Paketagent); must pay first (Vorkasse, Kaution, Bearbeitungsgebühr, Einzahlung, Krypto einzahlen). A critical rule is **downgraded to "mild"** when its sentence clearly describes a job duty or a legitimate right-to-work check (e.g. a bank advisor ad saying "Sie eröffnen Konten für unsere Kunden", or a work-permit check asking for a passport copy "für die Arbeitserlaubnis").
-- **Strong** (weight 2): easy-money claims (ohne Erfahrung, Heimarbeit, schnelles Geld, 500 € pro Tag); task-scam wording (Produkte bewerten, Videos liken, Bestellungen optimieren, tägliche Auszahlung); WhatsApp/Telegram/Signal as the only contact channel; instant acceptance without an interview.
-- **Mild** (weight 1): free-mail address as company contact; no company name, address or Impressum; three or more exclamation marks. Spelling mistakes are deliberately not used as a signal.
+### 1. English Job Postings – Machine Learning
 
-Banding: any critical → "High risk"; else 2 or more strong, or strong + mild totalling a weight of 3 or more → "Some warning signs"; else "Few warning signs found" (always followed by the line that this does not mean the offer is trustworthy).
+<badge color="success">Machine Learning</badge>
 
-**Synthetic sanity check (NOT a validation):** `tests/de_cases.csv` holds 20 fictional scam-like and 20 realistic legitimate German texts (no real company names), including tricky legitimate cases (bank advisor mentioning Konten eröffnen, a Werkstudent ad asking for a passport copy for the work permit, a small firm using a Gmail contact). `tests/test_de_rules.py` runs the checker over them and prints the shares: 19 of 20 scam-like texts flagged (high/some), 1 of 20 legitimate texts flagged (a home-office ad with no company details given). The one unflagged scam-like text has only mild signals, which deliberately do not reach "some". These numbers describe 40 invented texts, not real-world performance.
+The English detection system uses a Logistic Regression classifier trained on the Kaggle Real / Fake Job Posting Prediction dataset.
 
-### Language routing
+**Model Architecture:**
 
-The "Auto" posting-language option uses langdetect (seed 0, deterministic) on text of at least 100 characters. English → ML path, German → rule path. Mixed German+English text, or text the detector cannot place, returns no risk level and asks the user to choose the posting language. Any other detected language returns "not supported". An explicit Deutsch/English choice routes directly.
+- TF-IDF Vectorization (unigrams and bigrams)
+- 60,000 text features
+- 10 additional metadata flags
+- Class-balanced Logistic Regression (`C=5`)
+- Optimized decision threshold
 
-## Dataset
+Before prediction, real URLs, email addresses, and phone numbers are converted into placeholders matching the training data format.
 
-[Real / Fake Job Posting Prediction (Kaggle)](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction): 17,880 postings, 15,691 after removing duplicates and empty texts (12,552 train / 3,139 test, stratified split). The data is not included in this repository. The original research notebook is `scam-job-posting-detector.ipynb`.
+**Decision Threshold:**
 
-## Export the model from the notebook
+The application uses the original notebook's decision function:
 
-After training in the notebook, export the artifacts the app loads, and print the scikit-learn version (the `requirements.txt` pin must match it — a mismatch breaks loading the pickled model):
+- High risk: Score ≥ 0.949
+- Some warning signs: Score between 0 and 0.949
+- Few warning signs: Score below 0
 
-```python
-joblib.dump({"vec": vec, "model": best, "meta_cols": meta_cols, "threshold": float(t),
-             "feature_names": feature_names}, "model_artifacts.joblib")
-print("scikit-learn version:", sklearn.__version__)
+These are risk categories, not calibrated probabilities or definitive scam judgments.
+
+### English Model Performance
+
+Evaluation on the English test dataset:
+
+| Metric | Result |
+|---|---:|
+| PR-AUC | 0.917 |
+| Precision | 93.1% |
+| Recall | 76.6% |
+| Fake postings detected | 108 / 141 |
+| False alarms | 8 / 2,998 |
+
+The model detects approximately 77% of fraudulent postings while maintaining 93.1% precision.
+
+**Important:** Approximately one in four fraudulent postings is still missed. A low-risk result does not guarantee that a job advertisement is legitimate.
+
+The application loads the Logistic Regression model trained in the original notebook. The separately retrained model has its own metrics documented in `model/METRICS.md`.
+
+### 2. German Job Postings – Rule-Based Detection
+
+<badge color="info">Rule-Based Detection · No ML</badge>
+
+German job advertisements are evaluated using transparent rules based on common fraud patterns and warning signs highlighted by German consumer advice centers.
+
+The checker uses case-insensitive regular expressions and handles common German spelling variations, including:
+
+- ä / ae
+- ö / oe
+- ü / ue
+- ß / ss
+
+It also recognizes different spellings of terms such as Video-Ident, Videoident, and Video Ident.
+
+**Detection Categories:**
+
+| Category | Examples | Weight |
+|---|---|---:|
+| Critical | ID verification demands, suspicious bank-account opening, money or parcel forwarding, advance payments | High risk |
+| Strong | Easy-money promises, task scams, messenger-only contact, instant acceptance without interviews | 2 |
+| Mild | Free email addresses, missing company information, excessive exclamation marks | 1 |
+
+**Critical warning signs include:**
+
+- Requests for passport or identity card copies for suspicious verification.
+- Video-Ident or identity verification demands.
+- Requests to open or test bank accounts.
+- Requests for PIN, TAN, or online banking credentials.
+- Money or parcel forwarding.
+- Advance payments, registration fees, or cryptocurrency deposits.
+
+**Important Context Handling**
+
+The checker considers the context of a suspicious phrase.
+
+For example, a legitimate bank-advisor advertisement mentioning that employees open accounts for customers should not automatically be treated as fraudulent.
+
+Similarly, a legitimate employer requesting a passport copy for a right-to-work check at the appropriate stage of employment should not automatically trigger the highest risk classification.
+
+The matched sentence is displayed as evidence for each detected rule.
+
+**Risk Classification:**
+
+- Any critical warning sign → High risk.
+- Two or more strong warning signs → Some warning signs.
+- Strong and mild signals with a combined weight of at least 3 → Some warning signs.
+- Otherwise → Few warning signs found.
+
+The system also includes four optional context checkboxes covering unsolicited offers, requests for identity or bank information, payment or account-opening requests, and messenger-only contact.
+
+A high-risk result provides practical safety advice: stop contact, do not share identity or banking information, preserve evidence, and report suspicious activity to the police or a consumer advice center.
+
+**Validation Disclaimer:** The German checker is rule-based, not a machine learning model. It has no labelled real-world validation dataset or validated performance metrics.
+
+### German Synthetic Sanity Check
+
+A small test dataset is included in `tests/de_cases.csv`:
+
+| Test Category | Examples | Flagged |
+|---|---:|---:|
+| Fictional scam-like texts | 20 | 19 |
+| Fictional legitimate texts | 20 | 1 |
+
+These results come from 40 invented examples, not real-world validation. They demonstrate that the rules behave as intended on selected examples, not that the system achieves a particular real-world accuracy.
+
+### 3. Language Detection and Routing
+
+The application automatically determines which detection pipeline to use.
+
+```text
+             Job Advertisement
+                     |
+                     ▼
+              Language Detection
+                     |
+          ┌──────────┼──────────┐
+          ▼          ▼          ▼
+       English     German     Other
+          |          |          |
+          ▼          ▼          ▼
+       TF-IDF     Rule-Based   Unsupported
+          |       Detection    Language
+          ▼          |
+     Logistic        ▼
+     Regression   Warning Signs
+          |          |
+          └────┬─────┘
+               ▼
+         Risk Assessment
+               |
+               ▼
+       Explainable Results
 ```
 
-Here `t` is the tuned decision threshold (0.949 in the notebook), `vec` the fitted `TfidfVectorizer`, `best` the fitted logistic regression, `meta_cols` the 10 metadata column names in order, and `feature_names = list(vec.get_feature_names_out()) + meta_cols`. Copy the resulting `model_artifacts.joblib` to `model/` and commit it — the app loads it directly, and deploys do not retrain.
+The automatic language detector uses `langdetect` with a fixed seed for deterministic results.
 
-## Tech stack
+- English → Machine Learning pipeline.
+- German → Rule-based detection.
+- Mixed German and English → User is asked to select the language.
+- Other languages → Not supported.
 
-- **Backend:** FastAPI, SQLAlchemy (SQLite locally, PostgreSQL in production), APScheduler
-- **Frontend:** React 19 + Vite (build served by the backend)
-- **ML:** scikit-learn, TF-IDF + Logistic Regression, joblib artifacts, langdetect
-- **Ingestion:** Arbeitnow API, GitHub Actions cron (every 30 min)
-- **Hosting:** Render (free tier) + free PostgreSQL
+The automatic detector requires at least 100 characters of text.
 
-## Project structure
+## 📊 Live Job Search Platform
 
-```
-├── scam-job-posting-detector.ipynb   # original research notebook
-├── backend/          # FastAPI app: API, ingestion, scheduler, ML serving,
-│                     # language detection, German rule checker
-├── common/           # shared text-cleaning / metadata features
-├── train/            # train_model.py — reproduces the notebook pipeline
-├── frontend/         # React + Vite dashboard (builds to backend/static)
-│                     # src/i18n.js — all UI text, key -> {de, en}
-├── model/            # model_artifacts.joblib + METRICS.md (+ legacy artifacts)
-├── tests/            # pytest suite (49 tests, incl. German rule cases)
-│                     # de_cases.csv — 20 fictional scam-like + 20 legit German texts
-├── .github/workflows/ingest.yml     # 30-minute ingestion cron
-├── Dockerfile        # two-stage build (Node + Python)
-├── render.yaml       # Render Blueprint (web service + Postgres)
-├── requirements.txt  # backend runtime dependencies
-├── DEPLOYMENT.md     # exact deploy steps
-├── ARCHITECTURE.md   # stack, data flow, model, API contract
+The application also includes a live job search system for Germany.
+
+Job advertisements are retrieved from the [Arbeitnow API](https://www.arbeitnow.com).
+
+**Features:**
+
+- Search by job title, company, or location.
+- Filter by Werkstudent, Internship, Part-time, and Full-time.
+- Filter by risk category.
+- Sort listings by publication date or risk.
+- View individual job advertisements.
+- Access the original application links.
+
+Each listing is assessed using the appropriate detection method:
+
+- English listings → Machine Learning model.
+- German listings → Rule-based warning-sign checker.
+
+The job feed is refreshed every 30 minutes using automated ingestion.
+
+**Important:** The Arbeitnow API does not provide a company profile or job requirements for every listing. Therefore, some metadata features are unavailable when scoring live English listings.
+
+## 📁 Dataset
+
+**Source:** [Real / Fake Job Posting Prediction – Kaggle](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction)
+
+| Dataset Information | Value |
+|---|---:|
+| Original job postings | 17,880 |
+| After cleaning | 15,691 |
+| Training samples | 12,552 |
+| Testing samples | 3,139 |
+| Fake postings in test set | 141 |
+| Fake posting proportion | Approximately 4.8% |
+
+The dataset contains real and fraudulent English job advertisements.
+
+Duplicates and empty postings were removed before the stratified train/test split.
+
+The dataset is not included in this repository.
+
+**Research Notebook:** `scam-job-posting-detector.ipynb`
+
+**Note:** The English dataset is not used to train the German rule-based checker.
+
+## 🛠️ Technology Stack
+
+| Component | Technologies |
+|---|---|
+| Backend | Python, FastAPI |
+| Frontend | React 19, Vite |
+| Machine Learning | Scikit-learn, TF-IDF, Logistic Regression |
+| NLP | Text preprocessing, Langdetect |
+| Rule-Based Detection | Python, Regular Expressions |
+| Data Processing | Pandas, NumPy |
+| Database | SQLite, PostgreSQL |
+| ORM | SQLAlchemy |
+| Model Storage | Joblib |
+| Scheduling | APScheduler |
+| Job Data Source | Arbeitnow API |
+| Testing | Pytest |
+| Deployment | Render |
+| Automation | GitHub Actions |
+| Containerization | Docker |
+
+## 🏗️ Project Structure
+
+```text
+Scam-Job-Posting-Detector/
+│
+├── scam-job-posting-detector.ipynb
+│
+├── backend/
+│   ├── main.py
+│   ├── de_rules.py
+│   └── rules_de.py
+│
+├── common/
+│   └── Shared text-cleaning and metadata features
+│
+├── train/
+│   └── train_model.py
+│
+├── frontend/
+│   ├── src/
+│   │   └── i18n.js
+│   └── React + Vite application
+│
+├── model/
+│   ├── model_artifacts.joblib
+│   └── METRICS.md
+│
+├── tests/
+│   ├── de_cases.csv
+│   └── pytest test suite
+│
+├── .github/
+│   └── workflows/
+│       └── ingest.yml
+│
+├── Dockerfile
+├── render.yaml
+├── requirements.txt
+├── DEPLOYMENT.md
+├── ARCHITECTURE.md
 └── README.md
 ```
 
-## Run locally
+## ⚙️ Installation & Local Setup
 
-**Platform:**
+### Prerequisites
+
+- Python
+- Node.js and npm (optional for frontend development)
+- Git
+
+### 1. Clone the Repository
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+git clone https://github.com/Noman87370/Scam-Job-Posting-Detector.git
+
+cd Scam-Job-Posting-Detector
+```
+
+### 2. Create a Virtual Environment
+
+```bash
+python -m venv .venv
+```
+
+Activate the environment:
+
+**Windows:**
+
+```bash
+.venv\Scripts\activate
+```
+
+**Linux / macOS:**
+
+```bash
+source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
-cp .env.example .env        # set INGEST_TOKEN
-uvicorn backend.main:app --reload --port 8000
-# open http://localhost:8000
 ```
 
-Frontend development (optional — the backend serves the production build from `backend/static`):
+### 4. Configure Environment Variables
 
 ```bash
-cd frontend && npm install && npm run dev
+cp .env.example .env
 ```
 
-**Research notebook:**
+Configure `INGEST_TOKEN` inside your `.env` file.
+
+### 5. Start the Backend
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Open the application:
+
+http://localhost:8000
+
+### 6. Run the Frontend (Optional)
+
+The backend serves the production frontend build from `backend/static`.
+
+For frontend development:
+
+```bash
+cd frontend
+
+npm install
+
+npm run dev
+```
+
+### 7. Open the Research Notebook
+
+Install the research dependencies:
 
 ```bash
 pip install pandas matplotlib seaborn jupyter
-# download fake_job_postings.csv from Kaggle, then:
+```
+
+Download `fake_job_postings.csv` from Kaggle and run:
+
+```bash
 jupyter notebook scam-job-posting-detector.ipynb
 ```
 
-**Retrain the model:**
+### 8. Retrain the ML Model
 
 ```bash
 pip install -r train/requirements.txt
-python train/train_model.py   # writes artifacts to model/, incl. model_artifacts.joblib
+
+python train/train_model.py
 ```
 
-**Tests:**
+The training script writes the model artifacts to the `model/` directory.
+
+### 9. Run Tests
 
 ```bash
 .venv/bin/python -m pytest tests/ -v
 ```
 
-## API
+The test suite covers the application and German warning-sign detection rules.
+
+## 🔌 API Documentation
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/health` | Status + whether the model loaded |
-| GET | `/api/jobs` | List jobs (`q`, `category`, `risk_band`, `min_risk`, `max_risk`, `sort`, `page`, `per_page`) |
-| GET | `/api/jobs/{id}` | One job |
-| POST | `/api/predict` | Check a pasted posting (100–10,000 characters total). Body: the posting fields plus `posting_language` (`auto` / `de` / `en`, default `auto`) and `context_flags` (German check only: `unsolicited`, `asked_id`, `asked_bank_or_fee`, `contact_messenger`). Returns `path` (`ml` / `de` / `needs_choice` / `unsupported`): ML result (decision score, risk band, top raising/lowering features, indicators) or German rule result (band, matched rules with evidence sentences, counts, advice flag) |
-| POST | `/api/jobs/ingest` | Trigger ingestion (header `X-Ingest-Token`) |
-| GET | `/api/stats` | Totals by category and risk band |
+| GET | `/health` | Application status and model availability |
+| GET | `/api/jobs` | Retrieve and filter job listings |
+| GET | `/api/jobs/{id}` | Retrieve an individual job |
+| POST | `/api/predict` | Analyze a job advertisement |
+| POST | `/api/jobs/ingest` | Trigger job ingestion |
+| GET | `/api/stats` | Statistics by category and risk level |
 
-Example:
+### Job Prediction API
+
+`POST /api/predict`
+
+Accepts a job advertisement with a total text length of 100–10,000 characters.
+
+Supported fields include:
+
+- `posting_language`: `auto`, `de`, or `en`.
+- `context_flags`: Optional context information for German detection.
+
+German context flags:
+
+- `unsolicited`
+- `asked_id`
+- `asked_bank_or_fee`
+- `contact_messenger`
+
+The response includes the detection path:
+
+- `ml`
+- `de`
+- `needs_choice`
+- `unsupported`
+
+Depending on the detection path, the API returns the ML decision score and contributing features or German warning signs, evidence sentences, risk classification, and advice indicators.
+
+### Example API Request
 
 ```bash
 curl -X POST https://scam-job-detector-hob9.onrender.com/api/predict \
   -H "Content-Type: application/json" \
-  -d '{"title": "Work from home, earn $5000/week", "description": "Urgent hiring, no experience needed, pay a small registration fee to start immediately and earn money fast from home."}'
+  -d '{
+    "title": "Work from home, earn $5000/week",
+    "description": "Urgent hiring, no experience needed, pay a small registration fee to start immediately and earn money fast from home."
+  }'
 ```
 
-## Deployment
+## ☁️ Deployment
 
-See `DEPLOYMENT.md` for the exact steps. In short: Render Blueprint (`render.yaml`) creates the web service + PostgreSQL, and the GitHub Actions workflow (`.github/workflows/ingest.yml`) triggers ingestion every 30 minutes. The workflow needs two repository secrets (Settings → Secrets and variables → Actions):
+The application is deployed on Render.
 
-- `APP_URL` — the live service URL, e.g. `https://scam-job-detector-hob9.onrender.com` (no trailing slash)
-- `INGEST_TOKEN` — must match the `INGEST_TOKEN` env var of the Render web service
+**Deployment Architecture:**
 
-Note: the free Render service sleeps after 15 minutes idle (cold start ~60 s), so the in-app scheduler alone cannot keep the feed fresh — the GitHub Actions cron is what keeps it updated, and it also wakes the service.
+- Render Web Service for the FastAPI backend.
+- PostgreSQL for persistent job data.
+- Docker multi-stage build for frontend and backend.
+- GitHub Actions for automated job ingestion.
+- Arbeitnow API for live German job listings.
 
-## Job listings source
+### GitHub Actions Configuration
 
-Listings come from the [Arbeitnow](https://www.arbeitnow.com) free public job-board API (`https://www.arbeitnow.com/api/job-board-api`, no key required). Its terms ask for a link back to Arbeitnow.com and for no abuse; the site's terms of service also say API permission can be revoked at any time, and the use licence (personal, non-commercial) is not explicit about whether it covers API data — so this feed is a non-commercial demo, and the feed should be removed if Arbeitnow objects. Ingestion is cached (one fetch every 30 minutes, ~10 requests per run) rather than re-reading the feed per visitor.
+The ingestion workflow runs every 30 minutes.
 
-## Key insights
+Configure the following repository secrets:
 
-- Both linear models perform almost identically on PR-AUC, so the main gains come from handling class imbalance and choosing the decision threshold, not from the model type.
-- The model flagged 116 of 3,139 test postings (3.7%); 108 of them were fake, so about 9 in 10 alerts are real scams — but about 1 in 4 scams is still missed.
-- Removing duplicate or empty postings before the split prevents identical texts from appearing in both training and test data.
+| Secret | Description |
+|---|---|
+| `APP_URL` | Live Render application URL |
+| `INGEST_TOKEN` | Must match the Render service environment variable |
 
-## Limitations
+Example:
 
-- Only about 800 fake examples in total (141 in the test set), from a single dataset, so the metrics carry uncertainty; scam wording also changes over time.
-- The threshold favors precision, which means roughly one in four scams is missed. A platform that prefers recall would choose a lower threshold.
-- Text features alone cannot catch carefully written scams.
-- Results come from one train/test split, with no external validation set.
-- English only for the ML model: it was trained on English postings. German postings use the rule-based check instead, which has no labelled validation data — its only numbers come from the 40 invented texts in the synthetic sanity check, which is not a validation.
-- The Arbeitnow API does not return a company profile or requirements, so every ingested English listing is scored with those two flags set — the feed scores are thinner than a full posting check.
-- Memory: the running service uses about 260 MB RSS (measured locally after several predictions), within Render's free 512 MB. The German rule checker adds no heavy dependency — langdetect was already a dependency, and no new dependency was added for this round.
+```text
+APP_URL=https://scam-job-detector-hob9.onrender.com
+```
 
-## Future improvements
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for detailed deployment instructions.
 
-- **A German ML model needs labelled German data** — there is no labelled German fake-job dataset in this project, and the English model cannot be reused for German. Collecting and labelling German postings is the prerequisite.
-- **Multilingual embeddings need more RAM than the free tier offers** — sentence embeddings (e.g. MiniLM) would exceed Render's free 512 MB alongside the current stack, so they are not an option on this hosting plan.
-- Sentence-embedding features (e.g. MiniLM) compared with TF-IDF, on a paid tier.
-- Cost-based threshold (cost of a missed scam vs. cost of a false alarm).
-- More job sources beyond Arbeitnow.
+**Render Free Tier:** The service sleeps after 15 minutes of inactivity. A cold start can take approximately 60 seconds. GitHub Actions helps maintain the ingestion schedule and wake the service.
 
-## Kurzfassung (Deutsch)
+## 🔍 Job Listings Data Source
 
-Dieses Projekt erkennt betrügerische Stellenanzeigen auf zwei Wegen. **Englische Anzeigen** werden von einem ML-Modell (TF-IDF + logistische Regression) bewertet, trainiert auf dem Kaggle-Datensatz „Real / Fake Job Posting Prediction". Gemessene Ergebnisse auf den englischen Testdaten: Präzision 93,1 %, Recall 76,6 % — das Modell übersieht etwa jede vierte betrügerische Anzeige. **Deutsche Anzeigen** werden mit einer regelbasierten Prüfung gegen Warnsignale deutscher Verbraucherzentralen geprüft (Ausweiskopie, Video-Ident, Kontoeröffnung, Geld oder Pakete weiterleiten, Vorkasse, schnelles Geld, WhatsApp als einziger Kontakt). Diese Prüfung ist kein Modell und hat keine validierten Kennzahlen — sie wurde nur an 40 erfundenen Beispieltexten getestet. Die Live-Plattform zeigt echte deutsche Stellenanzeigen und ein Formular, in das man eine englische oder deutsche Stellenanzeige einfügen und prüfen kann: https://scam-job-detector-hob9.onrender.com
+Live job advertisements are retrieved from the [Arbeitnow Job Board API](https://www.arbeitnow.com/api/job-board-api).
 
-## Contact
+- Free public API.
+- No API key required.
+- Job ingestion approximately every 30 minutes.
+- Cached ingestion rather than fetching the entire feed for every visitor.
 
-**Abdullah Al Noman** · M.Sc. Medical Engineering (Medical Robotics), FAU Erlangen-Nürnberg
-[GitHub](https://github.com/Noman87370)
+The feed is intended as a non-commercial demonstration. Arbeitnow's API terms and permission conditions apply, and the feed should be removed if permission is withdrawn or the service objects to its use.
+
+## 🔬 Key Research Insights
+
+- Both linear models perform almost identically on PR-AUC, suggesting that class imbalance handling and decision-threshold optimization are important factors.
+- The English model flagged 116 of 3,139 test postings (3.7%); 108 were fraudulent.
+- Approximately 9 out of 10 flagged postings were fraudulent in the original test results.
+- Removing duplicate and empty postings before splitting helps prevent data leakage.
+- German rule-based detection provides interpretable warning signs without pretending that an English-trained model understands German advertisements.
+- Context-aware rules help distinguish suspicious identity and banking requests from legitimate employment procedures.
+
+## ⚠️ Limitations
+
+- The English ML model was trained on a single Kaggle dataset with approximately 800 fraudulent examples.
+- Only 141 fraudulent postings were included in the test set.
+- The English model misses approximately one in four fraudulent postings at the selected threshold.
+- The results come from one train/test split, without an external validation dataset.
+- German detection is rule-based and has no labelled real-world validation data.
+- The German checker was tested using only 40 fictional examples. These are not real-world performance metrics.
+- Other languages are currently unsupported.
+- Carefully written fraudulent advertisements may avoid the existing text-based warning signs.
+- Live listings may have incomplete metadata, limiting the English model's available features.
+- Fraud patterns change over time, requiring regular review and improvements.
+
+## 🔮 Future Improvements
+
+- **German ML Model:** Collect and label real German job advertisements to develop and validate a dedicated German fraud detection model.
+- **Multilingual Detection:** Extend language support beyond English and German.
+- **Sentence Embeddings:** Compare TF-IDF with models such as MiniLM on hosting with sufficient memory.
+- **Threshold Optimization:** Introduce cost-sensitive threshold selection based on the consequences of missed scams and false alarms.
+- **Additional Job Sources:** Integrate more job APIs beyond Arbeitnow.
+- **Company Verification:** Add company reputation and verification signals.
+- **Model Evaluation:** Introduce external validation datasets and more comprehensive testing.
+
+## 🇩🇪 Kurzfassung (Deutsch)
+
+Dieses Projekt erkennt betrügerische Stellenanzeigen mit zwei unterschiedlichen Methoden.
+
+**Englische Stellenanzeigen:** Ein Machine-Learning-Modell mit TF-IDF und logistischer Regression analysiert englische Anzeigen. Auf dem englischen Testdatensatz erreicht das Modell eine Precision von 93,1 % und einen Recall von 76,6 %.
+
+**Deutsche Stellenanzeigen:** Ein regelbasiertes System erkennt typische Warnsignale, beispielsweise Ausweiskopien, Video-Ident, verdächtige Kontoeröffnungen, Geldweiterleitungen, Vorauszahlungen und unseriöse Messenger-Kommunikation.
+
+Die deutsche Prüfung ist kein Machine-Learning-Modell und besitzt keine validierten Kennzahlen. Sie wurde lediglich mit 40 fiktiven Beispieltexten getestet.
+
+Die Live-Plattform durchsucht echte Stellenanzeigen in Deutschland und bewertet diese mit dem jeweils passenden Erkennungssystem.
+
+**Live-Demo:** https://scam-job-detector-hob9.onrender.com
+
+## 👨‍💻 Author
+
+**Abdullah Al Noman**
+
+M.Sc. Medical Engineering – Medical Robotics  
+Friedrich-Alexander-Universität Erlangen-Nürnberg (FAU)
+
+**Research Interests:** Machine Learning, Artificial Intelligence, Computer Vision, Medical Imaging, and Data Analysis.
+
+[![GitHub](https://img.shields.io/badge/GitHub-Noman87370-181717?style=for-the-badge&logo=github)](https://github.com/Noman87370)
+
+---
+
+<p align="center">
+  <b>Building safer job-search experiences through Machine Learning and explainable fraud detection.</b>
+</p>
