@@ -1,0 +1,74 @@
+{
+  "dataset": "shivamb/real-or-fake-fake-jobposting-prediction (Kaggle)",
+  "dataset_file": "fake_job_postings.csv",
+  "rows_raw": 17880,
+  "rows_after_cleaning": 15691,
+  "train_size": 12552,
+  "test_size": 3139,
+  "fraud_rate_raw": 0.045057676374992035,
+  "seed": 42,
+  "tfidf": {
+    "ngram_range": [
+      1,
+      2
+    ],
+    "min_df": 3,
+    "max_df": 0.9,
+    "stop_words": "english",
+    "sublinear_tf": true,
+    "max_features": 60000
+  },
+  "model": "LogisticRegression(C=5, class_weight='balanced', max_iter=1000)",
+  "meta_cols": [
+    "telecommuting",
+    "has_company_logo",
+    "has_questions",
+    "has_url_token",
+    "has_email_token",
+    "has_phone_token",
+    "no_profile",
+    "no_requirements",
+    "has_salary",
+    "text_len"
+  ],
+  "threshold_rule": "max recall at precision >= 90%",
+  "decision_threshold": 1.032172513932578,
+  "probability_threshold": 0.7373368661339136,
+  "metrics": {
+    "pr_auc": 0.9141088822838969,
+    "roc_auc": 0.9923802629649081,
+    "precision": 0.9385964912280702,
+    "recall": 0.7588652482269503,
+    "f1": 0.8392156862745098,
+    "confusion": {
+      "tn": 2991,
+      "fp": 7,
+      "fn": 34,
+      "tp": 107
+    }
+  },
+  "top_fraud_signals": [
+    "link tokurl",
+    "using link",
+    "apply using",
+    "receptionist",
+    "accion",
+    "administrative",
+    "assistant",
+    "high school",
+    "earn",
+    "line requirements"
+  ],
+  "top_legit_signals": [
+    "text_len",
+    "english",
+    "web",
+    "client",
+    "growing",
+    "digital",
+    "new",
+    "university",
+    "experience",
+    "software"
+  ]
+}
