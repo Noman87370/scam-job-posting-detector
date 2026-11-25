@@ -27,9 +27,12 @@ every ingested listing — the model sees those listings as thinner
 than a full posting.
 
 Language: the model was trained on English only. Each listing's
-language is detected at ingest and stored; the dashboard shows a risk
-band only for English listings. Rows ingested before the language
-column existed are backfilled on the next ingest run.
+language is detected at ingest and stored. English listings are scored
+by the ML model; German listings are checked with the rule-based
+warning-sign checker (backend/de_rules.py) instead — the English model
+cannot judge German text. The dashboard shows a risk band only for
+English and German listings. Rows ingested before the language column
+existed are backfilled on the next ingest run.
 
 Dedupe: (source, external_id) unique; also normalised
 (title, company, location) across sources.
@@ -51,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from .config import ARBEITNOW_API, ARBEITNOW_MAX_PAGES
 from .database import SessionLocal
+from .de_rules import check_german
 from .language import detect_language
 from .ml import predict, risk_band
 from .models import IngestRun, Job
@@ -171,30 +175,101 @@ def fetch_arbeitnow(max_pages: int = ARBEITNOW_MAX_PAGES) -> list[dict]:
     return jobs
 
 
+def _score_listing(fields: dict, title: str, description: str) -> dict:
+    """Score one listing for the feed, by language.
+
+    English -> the ML model (as before). German -> the rule-based
+    warning-sign checker (no ML score exists for German, so
+    fraud_probability is 0.0 and decision_score is None; the band
+    comes from the rules). Other languages -> the ML score as before,
+    but the dashboard hides the band ("Not scored"). A failure in one
+    row never stops the ingest run: the row is stored unscored.
+    """
+    text = f"{title or ''} {description or ''}"
+    lang = detect_language(text)
+    try:
+        if lang == "de":
+            result = check_german(text)
+            return {
+                "fraud_probability": 0.0,
+                "decision_score": None,
+                "risk_band": result["band"],
+                "language": "de",
+                "indicators": json.dumps({
+                    "method": "de",
+                    "matched": result["matched"],
+                    "critical": result["critical"],
+                    "strong": result["strong"],
+                    "mild": result["mild"],
+                }),
+            }
+        score = predict(fields)
+        return {
+            "fraud_probability": score["fraud_probability"],
+            "decision_score": score["decision_score"],
+            "risk_band": score["risk_band"],
+            "language": score["language"],
+            "indicators": json.dumps({
+                "method": "ml",
+                "top_raising": score["top_raising"],
+                "top_lowering": score["top_lowering"],
+                "indicators": score["indicators"],
+            }),
+        }
+    except Exception:  # noqa: BLE001 — one bad row must not stop ingestion
+        return {
+            "fraud_probability": 0.0,
+            "decision_score": None,
+            "risk_band": "few",
+            "language": lang,
+            "indicators": json.dumps({"method": "unscored"}),
+        }
+
+
 def _backfill_scores(db: Session) -> int:
     """Fill language / decision_score / risk_band on older rows.
 
-    Rows ingested before those columns existed have NULLs. Language is
-    detected from the stored text; the decision score is recovered
-    exactly from the stored probability (for logistic regression,
-    score = log(p / (1 - p))), and the band follows from the score.
-    Runs once per row — later runs find nothing to do.
+    English rows ingested before those columns existed get their
+    decision score recovered exactly from the stored probability (for
+    logistic regression, score = log(p / (1 - p))), and the band
+    follows from the score. German rows get the rule-based check
+    instead — their stored ML score was computed on German text, which
+    the English-only model cannot judge. Rows already carrying a "de"
+    method marker are skipped. Runs once per row — later runs find
+    nothing to do.
     """
-    rows = db.query(Job).filter(
-        (Job.language.is_(None)) | (Job.decision_score.is_(None))
-    ).all()
+    rows = db.query(Job).all()
     updated = 0
     for job in rows:
+        try:
+            indicators = json.loads(job.indicators or "{}")
+        except (ValueError, TypeError):
+            indicators = {}
         try:
             if job.language is None:
                 job.language = detect_language(
                     f"{job.title or ''} {job.description or ''}"
                 )
-            if job.decision_score is None:
+            if job.language == "de" and indicators.get("method") != "de":
+                result = check_german(
+                    f"{job.title or ''} {job.description or ''}"
+                )
+                job.fraud_probability = 0.0
+                job.decision_score = None
+                job.risk_band = result["band"]
+                job.indicators = json.dumps({
+                    "method": "de",
+                    "matched": result["matched"],
+                    "critical": result["critical"],
+                    "strong": result["strong"],
+                    "mild": result["mild"],
+                })
+                updated += 1
+            elif job.decision_score is None and job.language == "en":
                 p = min(max(float(job.fraud_probability or 0.0), 1e-6), 1 - 1e-6)
                 job.decision_score = round(math.log(p / (1 - p)), 4)
                 job.risk_band = risk_band(job.decision_score)
-            updated += 1
+                updated += 1
         except Exception:  # noqa: BLE001 — one bad row must not stop the pass
             continue
     if updated:
@@ -267,12 +342,8 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
                 "has_company_logo": False,
                 "has_questions": False,
             }
-            score = predict(fields)
-            indicators_json = json.dumps({
-                "top_raising": score["top_raising"],
-                "top_lowering": score["top_lowering"],
-                "indicators": score["indicators"],
-            })
+            score = _score_listing(fields, title, description)
+            indicators_json = score["indicators"]
             job_language = score["language"]
             existing = db.query(Job).filter(
                 Job.source == SOURCE, Job.external_id == external_id

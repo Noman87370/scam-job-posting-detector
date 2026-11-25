@@ -174,24 +174,15 @@ def test_predict_rejects_too_short_and_too_long(monkeypatch, client):
     assert r.status_code == 200
 
 
-def test_predict_non_english_returns_language_message(monkeypatch, client):
+def test_predict_german_routes_to_rule_check(monkeypatch, client):
+    # German text with Auto now routes to the German rule checker, not
+    # to the English ML model — so the monkeypatched ML predict must
+    # NOT be called, and there is no "trained on English postings"
+    # warning any more: the German path has its own result.
     import backend.main as main
 
     def fake_predict(fields):
-        return {
-            "decision_score": 0.5,
-            "fraud_probability": 0.62,
-            "risk_band": "some",
-            "risk_label": "Some warning signs",
-            "threshold": 0.949,
-            "top_raising": [],
-            "top_lowering": [],
-            "indicators": [],
-            "language": "de",
-            "language_ok": False,
-            "language_message": "This model was trained on English postings, "
-                                "so the result would be unreliable",
-        }
+        raise AssertionError("ML predict must not run for German text")
 
     monkeypatch.setattr(main, "predict", fake_predict)
     r = client.post("/api/predict", json={
@@ -202,9 +193,11 @@ def test_predict_non_english_returns_language_message(monkeypatch, client):
     })
     assert r.status_code == 200
     data = r.json()
-    assert data["language"] == "de"
-    assert data["language_ok"] is False
-    assert "trained on English postings" in data["language_message"]
+    assert data["path"] == "de"
+    assert data["detected_language"] == "de"
+    assert data["de_band"] == "few"
+    assert "Rule-based" in data["method_label_en"]
+    assert "fraud_probability" not in data
 
 
 def test_ingest_requires_token(client):

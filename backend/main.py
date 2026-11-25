@@ -19,11 +19,18 @@ from sqlalchemy.orm import Session
 
 from . import config
 from .database import Base, engine, ensure_job_columns, get_db
+from .de_rules import check_german
 from .ingest import ingest_arbeitnow
+from .language import analyze_language
 from .ml import ModelNotAvailable, model_info, predict
 from .models import IngestRun, Job
 from .schemas import (
+    DE_METHOD_LABEL_DE,
+    DE_METHOD_LABEL_EN,
     DISCLAIMER,
+    DISCLAIMER_DE,
+    ML_METHOD_LABEL_DE,
+    ML_METHOD_LABEL_EN,
     IngestOut,
     JobOut,
     JobsPage,
@@ -31,6 +38,12 @@ from .schemas import (
     PredictOut,
     StatsOut,
 )
+
+# common/ lives next to backend/; make it importable whatever the CWD is.
+import sys  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common.features import merge_text  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,13 +75,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Scam Job Posting Detector",
     description=(
-        "Scam Job Posting Detector (English postings). Paste an English "
-        "job posting and get a risk estimate from a TF-IDF + logistic "
+        "Scam Job Posting Detector (English ML model + German warning-sign "
+        "checker). English postings are scored by a TF-IDF + logistic "
         "regression model trained on the Kaggle Real/Fake Job Posting "
-        "dataset. Scores are risk estimates, never a definitive verdict. "
-        "The live job listings come from the Arbeitnow API (Germany)."
+        "dataset; German postings are checked against warning signs from "
+        "German consumer advice centers (rule-based, no ML). Scores are "
+        "risk estimates, never a definitive verdict. The live job "
+        "listings come from the Arbeitnow API (Germany)."
     ),
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -190,6 +205,86 @@ def predict_posting(payload: PredictIn):
             detail=f"Please keep the total input under {MAX_INPUT_CHARS} characters "
                    f"({total_chars} given).",
         )
+    posting_language = (payload.posting_language or "auto").lower()
+    if posting_language not in ("auto", "de", "en"):
+        raise HTTPException(
+            status_code=400,
+            detail="posting_language must be 'auto', 'de' or 'en'.",
+        )
+    raw_text = merge_text(fields)
+
+    # --- Routing ------------------------------------------------------
+    # Auto: detect (only on >=100 chars, which the limit above guarantees).
+    # Mixed German+English or unsure detection -> ask the user to choose.
+    # Any other language -> "not supported". An explicit choice wins.
+    detected = None
+    detected_confidence = 0.0
+    mixed = False
+    if posting_language == "auto":
+        detected = analyze_language(raw_text)
+        detected_confidence = detected["confidence"]
+        mixed = detected["mixed"]
+        code = detected["code"]
+        if mixed or detected["unsure"]:
+            return PredictOut(
+                path="needs_choice",
+                language_ok=False,
+                language_message=(
+                    "This text mixes German and English. Please choose the "
+                    "posting language."
+                    if mixed else
+                    "We could not tell whether this text is German or English. "
+                    "Please choose the posting language."
+                ),
+                detected_language=code,
+                detected_confidence=detected_confidence,
+                mixed=mixed,
+                disclaimer=DISCLAIMER,
+                disclaimer_de=DISCLAIMER_DE,
+            )
+        if code not in ("de", "en"):
+            return PredictOut(
+                path="unsupported",
+                language_ok=False,
+                language_message=(
+                    "This checker supports German and English postings only."
+                ),
+                detected_language=code,
+                detected_confidence=detected_confidence,
+                disclaimer=DISCLAIMER,
+                disclaimer_de=DISCLAIMER_DE,
+            )
+        posting_language = code
+
+    # --- German rule-based path (no ML, no invented metrics) ----------
+    if posting_language == "de":
+        result = check_german(raw_text, payload.context_flags or [])
+        return PredictOut(
+            path="de",
+            risk_band=result["band"],
+            risk_label=result["band_label_en"],
+            language="de",
+            detected_language="de",
+            detected_confidence=detected_confidence,
+            method_label_de=DE_METHOD_LABEL_DE,
+            method_label_en=DE_METHOD_LABEL_EN,
+            disclaimer=DISCLAIMER,
+            disclaimer_de=DISCLAIMER_DE,
+            de_band=result["band"],
+            de_band_label_de=result["band_label_de"],
+            de_band_label_en=result["band_label_en"],
+            de_critical=result["critical"],
+            de_strong=result["strong"],
+            de_mild=result["mild"],
+            de_matched=result["matched"],
+            de_checkboxes=result["checkboxes_applied"],
+            de_advice=result["advice"],
+            de_advice_link=result["advice_link"],
+            de_few_note_de=result["few_note_de"],
+            de_few_note_en=result["few_note_en"],
+        )
+
+    # --- English ML path (unchanged) ----------------------------------
     try:
         result = predict(fields)
     except ModelNotAvailable as exc:
@@ -197,6 +292,7 @@ def predict_posting(payload: PredictIn):
     # The checker response carries no fraud probability (it is not a
     # "% chance of scam"); predict() keeps it internally for the feed.
     return PredictOut(
+        path="ml",
         decision_score=result["decision_score"],
         risk_band=result["risk_band"],
         risk_label=result["risk_label"],
@@ -207,7 +303,12 @@ def predict_posting(payload: PredictIn):
         language=result["language"],
         language_ok=result["language_ok"],
         language_message=result["language_message"],
+        detected_language=result["language"],
+        detected_confidence=detected_confidence,
+        method_label_de=ML_METHOD_LABEL_DE,
+        method_label_en=ML_METHOD_LABEL_EN,
         disclaimer=DISCLAIMER,
+        disclaimer_de=DISCLAIMER_DE,
     )
 
 

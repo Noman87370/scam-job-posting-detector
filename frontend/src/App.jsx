@@ -1,99 +1,48 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import { STRINGS, EXAMPLES_EN, EXAMPLES_DE } from './i18n.js'
 
-// Reported results on the English test set (3,139 postings, 141 fake).
-// These are the notebook's numbers — the only metrics shown anywhere
-// in the UI. (The retrained model's own measurements live in
-// model/METRICS.md.)
-const NOTEBOOK_METRICS = {
-  precision: '93.1%',
-  recall: '76.6%',
-  prAuc: '0.917',
-  caught: '108 of 141',
-  falseAlarms: '8',
-  testSize: '3,139',
+// Replace {name} placeholders in a translated template.
+function fmt(template, vars) {
+  let out = template || ''
+  for (const [k, v] of Object.entries(vars || {})) out = out.replaceAll(`{${k}}`, String(v))
+  return out
 }
 
-const DISCLAIMER =
-  'This is a statistical estimate, not proof. The model misses about ' +
-  '1 in 4 scams and can flag real postings.'
+function defaultUiLang() {
+  try {
+    const saved = localStorage.getItem('uiLang')
+    if (saved === 'de' || saved === 'en') return saved
+  } catch { /* storage unavailable */ }
+  return (navigator.language || 'en').toLowerCase().startsWith('de') ? 'de' : 'en'
+}
 
 const CATEGORIES = ['', 'Werkstudent', 'Internship', 'Part-time', 'Full-time', 'Other']
-const RISK_BANDS = [
-  { value: '', label: 'Any risk level' },
-  { value: 'high', label: 'High risk' },
-  { value: 'some', label: 'Some warning signs' },
-  { value: 'few', label: 'Few warning signs' },
-]
-const SORTS = [
-  { value: 'newest', label: 'Newest first' },
-  { value: 'oldest', label: 'Oldest first' },
-  { value: 'risk_desc', label: 'Highest risk first' },
-  { value: 'risk_asc', label: 'Lowest risk first' },
-]
+const BAND_VALUES = ['high', 'some', 'few']
+const SORT_VALUES = ['newest', 'oldest', 'risk_desc', 'risk_asc']
 
-const BAND_LABELS = {
-  high: 'High risk',
-  some: 'Some warning signs',
-  few: 'Few warning signs',
+const BAND_KEY = { high: 'riskHigh', some: 'riskSome', few: 'riskFew' }
+const SORT_KEY = {
+  newest: 'sortNewest', oldest: 'sortOldest',
+  risk_desc: 'sortRiskDesc', risk_asc: 'sortRiskAsc',
+}
+const SEVERITY_KEY = {
+  critical: 'severityCritical', strong: 'severityStrong', mild: 'severityMild',
 }
 
-// Fictional example postings (no real company names). The scam-like
-// one is deliberately loud; the normal one is an ordinary working
-// student ad. Both load into the form so visitors can see how the
-// fields map to the model.
-const EXAMPLES = {
-  scam: {
-    title: 'Earn $4,500 per week working from home — no experience needed',
-    company: 'BrightPath Rewards',
-    location: 'Remote',
-    description:
-      'Urgent hiring! Work from home and earn $4,500 per week with no ' +
-      'experience needed. Just pay a small registration fee of $99 to start ' +
-      'immediately. Send the money via wire transfer now — limited positions, ' +
-      'apply today! Contact us on WhatsApp +1 555 010 2030 or email ' +
-      'apply@brightpath-rewards.example to get started and earn money fast.',
-    requirements: '',
-    benefits: 'Unlimited income, work from home, no experience needed',
-    company_profile: '',
-    salary_range: '$4,500 per week',
-    telecommuting: true,
-    has_company_logo: false,
-    has_questions: false,
-    has_salary: true,
-  },
-  normal: {
-    title: 'Working Student Data Analyst (m/f/d)',
-    company: 'Harborview Analytics GmbH',
-    location: 'Erlangen, Germany',
-    description:
-      'As a working student in our Data Analytics team in Erlangen you will ' +
-      'support data collection, validation and reporting with SQL and Power ' +
-      'BI. You will document your results, present them to the team in our ' +
-      'weekly meeting, and help maintain our dashboards. The role is 15 to ' +
-      '20 hours per week, with flexible hours around your lectures and a ' +
-      'hybrid working model.',
-    requirements:
-      'Enrolled student in computer science, data science or a related ' +
-      'field. Knowledge of Python and SQL. Good English skills; German is ' +
-      'a plus but not required.',
-    benefits: 'Flexible working hours, hybrid working model, mentoring, €16 per hour',
-    company_profile:
-      'Harborview Analytics is a mid-sized software company in Erlangen ' +
-      'that builds data tools for manufacturers. Our team of 40 works ' +
-      'closely with customers across Germany.',
-    salary_range: '€16 per hour',
-    telecommuting: true,
-    has_company_logo: true,
-    has_questions: true,
-    has_salary: true,
-  },
-}
+// The four user-reported context checkboxes (German check only).
+// Ids match backend/rules_de.py CHECKBOXES.
+const CONTEXT_FLAGS = [
+  { id: 'unsolicited', key: 'ctxUnsolicited' },
+  { id: 'asked_id', key: 'ctxAskedId' },
+  { id: 'asked_bank_or_fee', key: 'ctxAskedBankOrFee' },
+  { id: 'contact_messenger', key: 'ctxContactMessenger' },
+]
 
-function RiskBadge({ band, score }) {
+function RiskBadge({ band, score, tr }) {
   return (
     <span className={`risk-badge risk-${band}`} title={score != null ? `Decision score ${score}` : ''}>
-      {BAND_LABELS[band] || band}
+      {tr(BAND_KEY[band]) || band}
       {score != null ? ` · score ${score}` : ''}
     </span>
   )
@@ -110,16 +59,62 @@ function fmtContribution(c) {
   return c > 0 ? `+${c}` : `${c}`
 }
 
-function JobCard({ job }) {
+function DeRulesList({ matched, checkboxes, tr, uiLang }) {
+  const items = matched || []
+  const boxes = checkboxes || []
+  if (items.length === 0 && boxes.length === 0) return <p>{tr('noRules')}</p>
+  return (
+    <ul className="rule-list">
+      {items.map((m) => (
+        <li key={m.rule_id} className={`sev-${m.severity}`}>
+          <strong>{tr(SEVERITY_KEY[m.severity])}.</strong>{' '}
+          {uiLang === 'de' ? m.explanation_de : m.explanation_en}
+          {m.evidence && (
+            <span className="evidence"> {tr('evidenceLabel')} “{m.evidence}”</span>
+          )}
+          {m.downgraded && <span className="downgraded"> {tr('downgradedNote')}</span>}
+        </li>
+      ))}
+      {boxes.map((c) => (
+        <li key={c.id} className={`sev-${c.severity}`}>
+          <strong>{tr(SEVERITY_KEY[c.severity])}.</strong>{' '}
+          {uiLang === 'de' ? c.text_de : c.text_en}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function AdviceBox({ link, tr }) {
+  return (
+    <div className="advice">
+      <h4>{tr('adviceHeading')}</h4>
+      <ul>
+        <li>{tr('adviceStop')}</li>
+        <li>{tr('adviceNoId')}</li>
+        <li>{tr('adviceKeep')}</li>
+        <li>{tr('adviceReport')}</li>
+      </ul>
+      <p>
+        <a href={link} target="_blank" rel="noreferrer">{tr('adviceLinkText')}</a>
+      </p>
+    </div>
+  )
+}
+
+function JobCard({ job, tr, uiLang }) {
   const [open, setOpen] = useState(false)
   const indicators = job.indicators || {}
+  const method = indicators.method || 'ml'
+  const isDe = job.language === 'de' && method === 'de'
+  const isEn = job.language === 'en'
   const present = (indicators.indicators || []).filter((i) => i.present)
   // New explanation keys; fall back to the older stored shape.
   const raising = indicators.top_raising
     || (indicators.top_fraud_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
   const lowering = indicators.top_lowering
     || (indicators.top_legit_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
-  const notEnglish = job.language && job.language !== 'en'
+  const deMatched = indicators.matched || []
 
   return (
     <article className="card">
@@ -127,65 +122,90 @@ function JobCard({ job }) {
         <div>
           <h3>{job.title}</h3>
           <p className="meta">
-            {job.company} · {job.location || 'Location not stated'} · {job.category}
+            {job.company} · {job.location || tr('locationNotStated')} · {job.category}
           </p>
-          <p className="meta small">Posted {fmtDate(job.posted_at)} · Source: {job.source}</p>
+          <p className="meta small">
+            {fmt(tr('postedOn'), { date: fmtDate(job.posted_at) })} · {fmt(tr('sourceLabel'), { source: job.source })}
+          </p>
         </div>
-        {notEnglish ? (
-          <span className="risk-badge risk-unknown" title="The model was trained on English postings only">
-            Not scored — not in English
-          </span>
+        {isDe ? (
+          <div className="badge-col">
+            <RiskBadge band={job.risk_band} tr={tr} />
+            <span className="method-note">{tr('deMethodNote')}</span>
+          </div>
+        ) : isEn ? (
+          <RiskBadge band={job.risk_band} score={job.decision_score} tr={tr} />
         ) : (
-          <RiskBadge band={job.risk_band} score={job.decision_score} />
+          <span className="risk-badge risk-unknown" title={tr('notScoredTitle')}>
+            {tr('notScored')}
+          </span>
         )}
       </div>
       <p className="snippet">
         {(job.description || '').slice(0, 220)}
         {(job.description || '').length > 220 ? '…' : ''}
       </p>
-      {present.length > 0 && (
-        <p className="flags">⚠ {present.length} risk indicator{present.length > 1 ? 's' : ''}: {present.map((i) => i.label).join(', ')}</p>
+      {isDe && (
+        <p className="flags">
+          {fmt(tr('countsLine'), {
+            critical: indicators.critical || 0,
+            strong: indicators.strong || 0,
+            mild: indicators.mild || 0,
+          })}
+        </p>
+      )}
+      {isEn && present.length > 0 && (
+        <p className="flags">
+          {fmt(tr('riskFlags'), {
+            n: present.length,
+            plural: present.length > 1 ? 's' : '',
+            list: present.map((i) => i.label).join(', '),
+          })}
+        </p>
       )}
       <div className="card-actions">
-        <button onClick={() => setOpen(!open)}>{open ? 'Hide details' : 'Why this score?'}</button>
+        <button onClick={() => setOpen(!open)}>{open ? tr('hideDetails') : tr('whyScore')}</button>
         <a href={job.url} target="_blank" rel="noreferrer" className="apply">
-          Apply (original listing) ↗
+          {tr('applyOriginal')}
         </a>
       </div>
       {open && (
         <div className="details">
-          {notEnglish ? (
-            <p className="lang-warning">
-              This model was trained on English postings, so the result would be unreliable.
-              No risk level is shown for this listing.
-            </p>
-          ) : (
+          {isDe ? (
             <>
-              <h4>What pushed the score up</h4>
+              <h4>{tr('rulesFound')}</h4>
+              <DeRulesList matched={deMatched} checkboxes={[]} tr={tr} uiLang={uiLang} />
+              <p className="disclaimer">{tr('deMethodNote')}</p>
+            </>
+          ) : isEn ? (
+            <>
+              <h4>{tr('pushedUp')}</h4>
               {raising.length > 0 ? (
                 <p>{raising.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
               ) : (
-                <p>Nothing pushed the score up.</p>
+                <p>{tr('nothingUp')}</p>
               )}
-              <h4>What pushed the score down</h4>
+              <h4>{tr('pushedDown')}</h4>
               {lowering.length > 0 ? (
                 <p>{lowering.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
               ) : (
-                <p>Nothing pushed the score down.</p>
+                <p>{tr('nothingDown')}</p>
               )}
+              <h4>{tr('indicatorsChecked')}</h4>
+              <ul>
+                {(indicators.indicators || []).map((i) => (
+                  <li key={i.code} className={i.present ? 'bad' : 'good'}>
+                    {i.present ? '✗' : '✓'} <strong>{i.label}.</strong> {i.detail}
+                  </li>
+                ))}
+              </ul>
+              <h4>{tr('descriptionHeading')}</h4>
+              <p className="full-desc">{job.description}</p>
+              <p className="disclaimer">{tr('disclaimer')}</p>
             </>
+          ) : (
+            <p className="lang-warning">{tr('langWarningJob')}</p>
           )}
-          <h4>Indicators checked</h4>
-          <ul>
-            {(indicators.indicators || []).map((i) => (
-              <li key={i.code} className={i.present ? 'bad' : 'good'}>
-                {i.present ? '✗' : '✓'} <strong>{i.label}.</strong> {i.detail}
-              </li>
-            ))}
-          </ul>
-          <h4>Description</h4>
-          <p className="full-desc">{job.description}</p>
-          <p className="disclaimer">{DISCLAIMER}</p>
         </div>
       )}
     </article>
@@ -204,8 +224,10 @@ const TEXT_FIELDS = [
   'requirements', 'benefits', 'company_profile', 'salary_range',
 ]
 
-function CheckPosting() {
+function CheckPosting({ tr, uiLang }) {
   const [form, setForm] = useState(EMPTY_FORM)
+  const [postingLang, setPostingLang] = useState('auto')
+  const [contextFlags, setContextFlags] = useState([])
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -217,8 +239,14 @@ function CheckPosting() {
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
-  function loadExample(kind) {
-    setForm({ ...EMPTY_FORM, ...EXAMPLES[kind] })
+  function toggleContext(id) {
+    setContextFlags((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
+
+  function loadExample(kind, lang) {
+    const examples = lang === 'de' ? EXAMPLES_DE : EXAMPLES_EN
+    setForm({ ...EMPTY_FORM, ...examples[kind] })
     setResult(null)
     setError('')
   }
@@ -233,7 +261,11 @@ function CheckPosting() {
       const res = await fetch('/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          posting_language: postingLang,
+          context_flags: postingLang === 'en' ? [] : contextFlags,
+        }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -241,68 +273,130 @@ function CheckPosting() {
       }
       setResult(await res.json())
     } catch (err) {
-      setError(`Could not score this posting: ${err.message}`)
+      setError(`${tr('scoreError')}${err.message}`)
     } finally {
       setBusy(false)
     }
   }
 
+  const showExamples = postingLang === 'auto' ? ['de', 'en'] : [postingLang]
+
   return (
     <section className="checker">
-      <h2>Check a posting</h2>
-      <p>
-        Fill in the fields of a job ad — the model uses the same fields it
-        was trained on. English postings only.
-      </p>
-      <div className="examples">
-        <span>Try an example:</span>
-        <button type="button" onClick={() => loadExample('scam')}>Scam-like example (fictional)</button>
-        <button type="button" onClick={() => loadExample('normal')}>Normal example (fictional)</button>
+      <h2>{tr('checkHeading')}</h2>
+      <p>{tr('checkIntro')}</p>
+      <div className="lang-row">
+        <span>{tr('postingLangLabel')}:</span>
+        <label className="radio">
+          <input type="radio" name="postingLang" value="auto"
+            checked={postingLang === 'auto'} onChange={() => setPostingLang('auto')} />
+          {tr('postingLangAuto')}
+        </label>
+        <label className="radio">
+          <input type="radio" name="postingLang" value="de"
+            checked={postingLang === 'de'} onChange={() => setPostingLang('de')} />
+          {tr('postingLangDe')}
+        </label>
+        <label className="radio">
+          <input type="radio" name="postingLang" value="en"
+            checked={postingLang === 'en'} onChange={() => setPostingLang('en')} />
+          {tr('postingLangEn')}
+        </label>
       </div>
+      {showExamples.map((lang) => (
+        <div className="examples" key={lang}>
+          <span>{tr('tryExample')} {lang === 'de' ? 'Deutsch' : 'English'}:</span>
+          <button type="button" onClick={() => loadExample('scam', lang)}>{tr('scamExample')}</button>
+          <button type="button" onClick={() => loadExample('normal', lang)}>{tr('normalExample')}</button>
+        </div>
+      ))}
       <form onSubmit={submit}>
         <div className="grid2">
-          <input placeholder="Job title" value={form.title} onChange={set('title')} />
-          <input placeholder="Company" value={form.company} onChange={set('company')} />
-          <input placeholder="Location" value={form.location} onChange={set('location')} />
-          <input placeholder="Salary range (if stated)" value={form.salary_range} onChange={set('salary_range')} />
+          <input placeholder={tr('phTitle')} value={form.title} onChange={set('title')} />
+          <input placeholder={tr('phCompany')} value={form.company} onChange={set('company')} />
+          <input placeholder={tr('phLocation')} value={form.location} onChange={set('location')} />
+          <input placeholder={tr('phSalary')} value={form.salary_range} onChange={set('salary_range')} />
         </div>
-        <textarea placeholder="Job description" rows={5} value={form.description} onChange={set('description')} required />
-        <textarea placeholder="Requirements" rows={3} value={form.requirements} onChange={set('requirements')} />
-        <textarea placeholder="Benefits" rows={2} value={form.benefits} onChange={set('benefits')} />
-        <textarea placeholder="Company profile (if the ad has one)" rows={2} value={form.company_profile} onChange={set('company_profile')} />
-        <label className="check"><input type="checkbox" checked={form.telecommuting} onChange={set('telecommuting')} /> Remote work</label>
-        <label className="check"><input type="checkbox" checked={form.has_company_logo} onChange={set('has_company_logo')} /> Company logo shown</label>
-        <label className="check"><input type="checkbox" checked={form.has_questions} onChange={set('has_questions')} /> Screening questions</label>
-        <label className="check"><input type="checkbox" checked={form.has_salary} onChange={set('has_salary')} /> Salary stated</label>
+        <textarea placeholder={tr('phDescription')} rows={5} value={form.description} onChange={set('description')} required />
+        <textarea placeholder={tr('phRequirements')} rows={3} value={form.requirements} onChange={set('requirements')} />
+        <textarea placeholder={tr('phBenefits')} rows={2} value={form.benefits} onChange={set('benefits')} />
+        <textarea placeholder={tr('phCompanyProfile')} rows={2} value={form.company_profile} onChange={set('company_profile')} />
+        <label className="check"><input type="checkbox" checked={form.telecommuting} onChange={set('telecommuting')} /> {tr('checkRemote')}</label>
+        <label className="check"><input type="checkbox" checked={form.has_company_logo} onChange={set('has_company_logo')} /> {tr('checkLogo')}</label>
+        <label className="check"><input type="checkbox" checked={form.has_questions} onChange={set('has_questions')} /> {tr('checkQuestions')}</label>
+        <label className="check"><input type="checkbox" checked={form.has_salary} onChange={set('has_salary')} /> {tr('checkSalary')}</label>
+        {postingLang !== 'en' && (
+          <fieldset className="context">
+            <legend>{tr('contextHeading')}</legend>
+            {CONTEXT_FLAGS.map((c) => (
+              <label className="check" key={c.id}>
+                <input type="checkbox" checked={contextFlags.includes(c.id)}
+                  onChange={() => toggleContext(c.id)} /> {tr(c.key)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         <p className="char-count">
-          {totalChars.toLocaleString()} / 10,000 characters
-          {tooShort && ' — enter at least 100 characters in total.'}
-          {tooLong && ' — keep the total under 10,000 characters.'}
+          {fmt(tr('charCount'), { n: totalChars.toLocaleString(uiLang === 'de' ? 'de-DE' : 'en-US') })}
+          {tooShort && tr('tooShort')}
+          {tooLong && tr('tooLong')}
         </p>
-        <button type="submit" disabled={busy || tooShort || tooLong}>{busy ? 'Scoring…' : 'Check this posting'}</button>
+        <button type="submit" disabled={busy || tooShort || tooLong}>{busy ? tr('scoring') : tr('submitCheck')}</button>
       </form>
-      <p className="privacy">Text you enter is processed only to compute the result and is not stored.</p>
-      {busy && <p>Scoring… the free host may need up to a minute to wake up on first load.</p>}
+      <p className="privacy">{tr('privacy')}</p>
+      {busy && <p>{tr('scoringBusy')}</p>}
       {error && <p className="error">{error}</p>}
-      {result && !result.language_ok && (
+      {result && result.path === 'needs_choice' && (
         <div className="result">
-          <p className="lang-warning">{result.language_message}</p>
-          <p className="disclaimer">{DISCLAIMER}</p>
+          <p className="lang-warning">{tr(result.mixed ? 'needsChoiceMixed' : 'needsChoiceUnsure')}</p>
+          {result.detected_language && (
+            <p>{fmt(tr('detectedLanguage'), { lang: result.detected_language })}</p>
+          )}
         </div>
       )}
-      {result && result.language_ok && (
+      {result && result.path === 'unsupported' && (
         <div className="result">
-          <RiskBadge band={result.risk_band} score={result.decision_score} />
+          <p className="lang-warning">{tr('unsupported')}</p>
+          {result.detected_language && (
+            <p>{fmt(tr('detectedLanguage'), { lang: result.detected_language })}</p>
+          )}
+        </div>
+      )}
+      {result && result.path === 'de' && (
+        <div className="result">
+          <RiskBadge band={result.de_band} tr={tr} />
+          <p className="method">{uiLang === 'de' ? result.method_label_de : result.method_label_en}</p>
           <p>
-            Decision score: <strong>{result.decision_score}</strong>
-            {' '}· “High risk” starts at <strong>{result.threshold}</strong>
+            {fmt(tr('countsLine'), {
+              critical: result.de_critical, strong: result.de_strong, mild: result.de_mild,
+            })}
           </p>
+          <h4>{tr('rulesFound')}</h4>
+          <DeRulesList matched={result.de_matched} checkboxes={result.de_checkboxes} tr={tr} uiLang={uiLang} />
+          {result.de_advice && <AdviceBox link={result.de_advice_link} tr={tr} />}
+          {result.de_band === 'few' && (uiLang === 'de' ? result.de_few_note_de : result.de_few_note_en) && (
+            <p className="disclaimer">{uiLang === 'de' ? result.de_few_note_de : result.de_few_note_en}</p>
+          )}
+          <p className="disclaimer">{uiLang === 'de' ? result.disclaimer_de : result.disclaimer}</p>
+          {result.detected_language === 'en' && (
+            <p className="lang-warning">{fmt(tr('detectedNote'), { lang: 'English' })}</p>
+          )}
+        </div>
+      )}
+      {result && result.path === 'ml' && (
+        <div className="result">
+          <RiskBadge band={result.risk_band} score={result.decision_score} tr={tr} />
+          <p>
+            {tr('decisionScore')} <strong>{result.decision_score}</strong>
+            {' '}· {tr('highStartsAt')} <strong>{result.threshold}</strong>
+          </p>
+          <p className="method">{uiLang === 'de' ? result.method_label_de : result.method_label_en}</p>
           {(result.top_raising || []).length > 0 && (
-            <p><strong>What pushed the score up:</strong>{' '}
+            <p><strong>{tr('pushedUp')}:</strong>{' '}
               {result.top_raising.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
           )}
           {(result.top_lowering || []).length > 0 && (
-            <p><strong>What pushed the score down:</strong>{' '}
+            <p><strong>{tr('pushedDown')}:</strong>{' '}
               {result.top_lowering.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
           )}
           <ul>
@@ -312,7 +406,12 @@ function CheckPosting() {
               </li>
             ))}
           </ul>
-          <p className="disclaimer">{result.disclaimer}</p>
+          <p className="disclaimer">{uiLang === 'de' ? result.disclaimer_de : result.disclaimer}</p>
+          {result.detected_language && result.detected_language !== 'en' && (
+            <p className="lang-warning">
+              {fmt(tr('detectedNote'), { lang: result.detected_language })}
+            </p>
+          )}
         </div>
       )}
     </section>
@@ -320,6 +419,7 @@ function CheckPosting() {
 }
 
 export default function App() {
+  const [uiLang, setUiLang] = useState(defaultUiLang)
   const [jobs, setJobs] = useState([])
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState(null)
@@ -330,6 +430,12 @@ export default function App() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const tr = (key) => STRINGS[key]?.[uiLang] ?? key
+
+  useEffect(() => {
+    try { localStorage.setItem('uiLang', uiLang) } catch { /* storage unavailable */ }
+  }, [uiLang])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -347,7 +453,7 @@ export default function App() {
       setJobs(data.items)
       setTotal(data.total)
     } catch (err) {
-      setError(`Could not load jobs: ${err.message}`)
+      setError(`${tr('loadError')}${err.message}`)
     } finally {
       setLoading(false)
     }
@@ -363,76 +469,74 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>🛡️ Scam Job Posting Detector (English postings)</h1>
-        <p>Paste an English job posting and get a risk estimate — or browse live German job listings, scored with the same model.</p>
-        <p className="wake">Free hosting: the first load after a pause can take up to a minute to wake up.</p>
+        <div className="header-top">
+          <h1>🛡️ {tr('appTitle')}</h1>
+          <div className="lang-toggle" role="group" aria-label="Language / Sprache">
+            <button type="button" className={uiLang === 'de' ? 'active' : ''}
+              onClick={() => setUiLang('de')}>Deutsch</button>
+            <button type="button" className={uiLang === 'en' ? 'active' : ''}
+              onClick={() => setUiLang('en')}>English</button>
+          </div>
+        </div>
+        <p>{tr('subtitle')}</p>
+        <p className="wake">{tr('wake')}</p>
         {stats && (
           <p className="stats-line">
-            {stats.active_jobs} active jobs · {stats.total_jobs} total ingested
-            {stats.last_ingest ? ` · Last update ${fmtDate(stats.last_ingest)}` : ' · No ingestion run yet'}
+            {fmt(tr('statsActive'), { active: stats.active_jobs, total: stats.total_jobs })}
+            {stats.last_ingest ? ` · ${fmt(tr('statsLastUpdate'), { date: fmtDate(stats.last_ingest) })}` : ` · ${tr('statsNoIngest')}`}
           </p>
         )}
       </header>
 
       <section className="filters">
         <input
-          placeholder="Search title, company or location…"
+          placeholder={tr('searchPlaceholder')}
           value={q}
           onChange={(e) => { setQ(e.target.value); setPage(1) }}
         />
         <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1) }}>
           {CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c || 'All categories'}</option>
+            <option key={c} value={c}>{c || tr('allCategories')}</option>
           ))}
         </select>
         <select value={riskBand} onChange={(e) => { setRiskBand(e.target.value); setPage(1) }}>
-          {RISK_BANDS.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
+          <option value="">{tr('anyRisk')}</option>
+          {BAND_VALUES.map((b) => (
+            <option key={b} value={b}>{tr(BAND_KEY[b])}</option>
           ))}
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
-          {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          {SORT_VALUES.map((s) => <option key={s} value={s}>{tr(SORT_KEY[s])}</option>)}
         </select>
       </section>
 
-      {loading && <p>Loading jobs… the free host may need up to a minute to wake up on first load.</p>}
+      {loading && <p>{tr('loadingJobs')}</p>}
       {error && <p className="error">{error}</p>}
       {!loading && !error && total === 0 && (
-        <p className="empty">
-          No jobs have been ingested yet. Listings are collected automatically
-          every 30 minutes from the Arbeitnow job board (Germany-focused). Check
-          back shortly — no placeholder or simulated jobs are shown here.
-        </p>
+        <p className="empty">{tr('emptyJobs')}</p>
       )}
       {!loading && !error && total > 0 && (
         <>
-          <p className="count">{total} job{total === 1 ? '' : 's'} found</p>
+          <p className="count">{total === 1 ? tr('countJobsOne') : fmt(tr('countJobsMany'), { n: total })}</p>
           <div className="list">
-            {jobs.map((job) => <JobCard key={job.id} job={job} />)}
+            {jobs.map((job) => <JobCard key={job.id} job={job} tr={tr} uiLang={uiLang} />)}
           </div>
           <div className="pager">
-            <button disabled={page <= 1} onClick={() => setPage(page - 1)}>← Previous</button>
-            <span>Page {page} of {pages}</span>
-            <button disabled={page >= pages} onClick={() => setPage(page + 1)}>Next →</button>
+            <button disabled={page <= 1} onClick={() => setPage(page - 1)}>{tr('prevPage')}</button>
+            <span>{fmt(tr('pageOf'), { page, pages })}</span>
+            <button disabled={page >= pages} onClick={() => setPage(page + 1)}>{tr('nextPage')}</button>
           </div>
         </>
       )}
 
-      <CheckPosting />
+      <CheckPosting tr={tr} uiLang={uiLang} />
 
       <footer>
+        <p>{tr('footerModel')}</p>
+        <p>{tr('footerModes')} {tr('disclaimer')}</p>
         <p>
-          Model: TF-IDF (1–2 grams) + logistic regression, trained on the Kaggle
-          “Real / Fake Job Posting Prediction” dataset (17,880 postings; test set{' '}
-          {NOTEBOOK_METRICS.testSize}, of which 141 fake). Reported results: precision{' '}
-          {NOTEBOOK_METRICS.precision}, recall {NOTEBOOK_METRICS.recall}, PR-AUC{' '}
-          {NOTEBOOK_METRICS.prAuc} — {NOTEBOOK_METRICS.caught} fake postings caught,{' '}
-          {NOTEBOOK_METRICS.falseAlarms} false alarms among 2,998 real postings.
-        </p>
-        <p>English postings only. {DISCLAIMER}</p>
-        <p>
-          Job listings via <a href="https://www.arbeitnow.com">Arbeitnow</a> (free public API).
-          Text you enter is processed only to compute the result and is not stored.
+          {tr('footerListings')} <a href="https://www.arbeitnow.com">Arbeitnow</a> {tr('footerApi')}.
+          {' '}{tr('privacy')}
         </p>
       </footer>
     </div>
