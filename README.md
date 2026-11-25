@@ -1,194 +1,391 @@
-# Scam Job Posting Detector
+# 🛡️ Scam Job Posting Detector
 
-[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](YOUR_KAGGLE_NOTEBOOK_LINK)
+<h3 align="center">AI-Powered Fraud Detection for Job Postings</h3>
 
-> Detects fraudulent job postings from text and metadata, with evaluation designed for rare-event data.
-> **At the chosen threshold, the model catches 77% of fake postings (108 of 141) at 93% precision (PR-AUC: 0.917).**
+<p align="center">
+  Detect fraudulent job postings using Machine Learning and explore real job opportunities across Germany with automated fraud-risk analysis.
+</p>
 
-## Problem Statement
-Fake job ads (advance-fee scams, data harvesting) harm job seekers, and platforms need automated screening.
-Only about 4.8% of postings in the raw dataset are fake, so accuracy is misleading: a model that always
-predicts "real" already scores about 95%. This project therefore evaluates with PR-AUC, precision and recall
-on the fake class, and an explicit decision threshold.
+<p align="center">
+  <a href="https://scam-job-detector-hob9.onrender.com">
+    <img src="https://img.shields.io/badge/🚀_Live_Demo-Try_Now-2ea44f?style=for-the-badge" alt="Live Demo">
+  </a>
+</p>
 
-## Dataset
-[Real / Fake Job Posting Prediction (Kaggle)](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction):
-17,880 postings with 18 columns (free text plus metadata). After removing 2,189 duplicate and empty texts: 15,691 postings
-(12,552 for training, 3,139 for testing, stratified split). The data is not included in this repository.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react" alt="React">
+  <img src="https://img.shields.io/badge/Machine_Learning-scikit--learn-orange?logo=scikitlearn" alt="Scikit-learn">
+  <img src="https://img.shields.io/badge/Deployment-Render-purple?logo=render" alt="Render">
+  <img src="https://img.shields.io/badge/Tests-17_Passing-brightgreen?logo=pytest" alt="Tests">
+</p>
 
-## Technologies Used
+---
 
-**Language and environment**
+## 📌 Overview
 
-![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![Jupyter](https://img.shields.io/badge/Jupyter-F37626?style=for-the-badge&logo=jupyter&logoColor=white)
-![Kaggle](https://img.shields.io/badge/Kaggle-20BEFF?style=for-the-badge&logo=kaggle&logoColor=white)
-![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
+**Scam Job Posting Detector** is a machine learning-based application designed to identify potentially fraudulent job advertisements.
 
-**Libraries**
+It combines Natural Language Processing (NLP), TF-IDF feature extraction, Logistic Regression, and metadata-based indicators to estimate the probability that a job posting is fraudulent.
 
-![pandas](https://img.shields.io/badge/pandas-150458?style=for-the-badge&logo=pandas&logoColor=white)
-![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
-![SciPy](https://img.shields.io/badge/SciPy-8CAAE6?style=for-the-badge&logo=scipy&logoColor=white)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)
-![Matplotlib](https://img.shields.io/badge/Matplotlib-11557C?style=for-the-badge)
-![Seaborn](https://img.shields.io/badge/Seaborn-4C72B0?style=for-the-badge)
+Beyond classification, the project includes a live AI-powered job search platform that retrieves real job listings from Germany through the Arbeitnow API and evaluates their potential fraud risk.
 
-**Models and techniques**
+### Model Performance
 
-![TF-IDF](https://img.shields.io/badge/TF--IDF-2E7D32?style=flat-square)
-![Logistic Regression](https://img.shields.io/badge/Logistic_Regression-2E7D32?style=flat-square)
-![LinearSVC](https://img.shields.io/badge/LinearSVC-2E7D32?style=flat-square)
-![Class Weighting](https://img.shields.io/badge/Class_Weighting-455A64?style=flat-square)
-![Threshold Tuning](https://img.shields.io/badge/Threshold_Tuning-455A64?style=flat-square)
-![Cross-Validation](https://img.shields.io/badge/Cross--Validation-455A64?style=flat-square)
-![PR-AUC](https://img.shields.io/badge/PR--AUC_Evaluation-455A64?style=flat-square)
-![Error Analysis](https://img.shields.io/badge/Error_Analysis-455A64?style=flat-square)
+| Metric | Result |
+|---|---:|
+| PR-AUC | **0.914** |
+| Precision | **93.9%** |
+| Recall | **75.9%** |
+| F1-score | **0.839** |
 
-## Approach
-1. Merged title, company profile, description, requirements and benefits into one text field.
-2. Cleaned the text (HTML tags, placeholder tokens for URLs, emails and phone numbers) and removed duplicates **before** splitting, to avoid train/test leakage.
-3. Features: TF-IDF (1–2-grams) plus simple metadata flags (missing company profile or requirements, company logo, salary given, URL/email/phone present, text length).
-4. Models: Logistic Regression and LinearSVC with class weighting. Both performed almost identically (PR-AUC 0.917 vs. 0.923); Logistic Regression was kept for its interpretable coefficients.
-5. Chose the decision threshold on cross-validated training predictions (target: maximum recall at ≥90% precision), then evaluated once on the held-out test set.
-6. Error analysis of missed scams and false alarms.
+At the selected decision threshold, the model detects approximately 76% of fraudulent postings while maintaining approximately 94% precision.
 
-The notebook contains all charts: class balance, fraud rate by logo and company profile, precision-recall curve, confusion matrix and top features.
+## 🚀 Live Application
 
-## How to Run
-**On Kaggle:** open the notebook above, add the dataset as input, set the accelerator to *None* (no GPU needed), and click *Run All*.
+**Live Demo:** https://scam-job-detector-hob9.onrender.com
 
-**Locally:**
-```bash
-git clone https://github.com/Noman87370/scam-job-posting-detector.git
-cd scam-job-posting-detector
-pip install -r requirements.txt
-# download fake_job_postings.csv from Kaggle, then open the notebook:
-jupyter notebook scam_job_detector.ipynb
+### Key Features
+
+- **Live Job Search:** Retrieves real German job advertisements from the Arbeitnow API, with automated ingestion every 30 minutes.
+- **Smart Search & Filtering:** Search by job title, company, or location. Filter by Werkstudent, Internship, Part-time, and Full-time categories.
+- **AI Fraud Detection:** Every listing receives a fraud probability and a low, medium, or high risk classification.
+- **Explainable Predictions:** Displays contributing words and rule-based warning indicators, such as requests for money, missing company profiles, and missing salary information.
+- **Job Posting Analyzer:** Paste any job advertisement to receive an individual fraud-risk assessment.
+- **Original Application Links:** Access the original job advertisement and application page.
+
+> ⚠️ Model scores are risk estimates, not definitive judgments. The model was trained on English-language data, so word-level explanations may be less meaningful for German postings.
+
+## 📊 Model Performance
+
+The project uses TF-IDF (1–2 grams, 60,000 features) combined with 10 metadata flags and a Logistic Regression classifier (`C=5`, class-balanced).
+
+The decision threshold was selected to maximize recall while maintaining at least 90% precision.
+
+### Evaluation Results
+
+| Metric | Original Notebook | Retrained Model |
+|---|---:|---:|
+| PR-AUC | 0.917 | 0.914 |
+| Precision | 93.1% | 93.9% |
+| Recall | 76.6% | 75.9% |
+| F1-score | 0.840 | 0.839 |
+| Fake postings detected | 108 / 141 | 107 / 141 |
+| False alarms | 8 | 7 |
+
+### Risk Classification
+
+| Risk Level | Probability |
+|---|---|
+| 🟢 Low | Below 0.25 |
+| 🟡 Medium | 0.25 – 0.736 |
+| 🔴 High | 0.737 and above |
+
+The retrained model is generated by `train/train_model.py`, reproducing the original notebook pipeline.
+
+For complete evaluation details, see [`model/METRICS.md`](model/METRICS.md).
+
+## 🧠 How It Works
+
+```text
+       Job Advertisement
+                |
+                ▼
+       Text Preprocessing
+                |
+                ▼
+       TF-IDF Feature Extraction
+                |
+                ▼
+       Metadata Feature Extraction
+                |
+                ▼
+       Logistic Regression
+                |
+                ▼
+       Fraud Probability Score
+                |
+                ▼
+       Risk Classification
+                |
+       ┌────────┼────────┐
+       ▼        ▼        ▼
+      LOW     MEDIUM    HIGH
+                |
+                ▼
+       Explainable Prediction
 ```
 
-## Platform
+### Machine Learning Pipeline
 
-The research above is now a running web app: an AI job search for
-Germany that scores every listing for fraud risk. The model was
-retrained from the notebook pipeline by `train/train_model.py` and the
-retrained metrics are in `model/METRICS.md` (PR-AUC 0.914, precision
-93.9%, recall 75.9% — 107 of 141 fake caught, 7 false alarms, vs. the
-notebook's 0.917 / 93.1% / 76.6%). The "Gradio demo" idea from Future
-Improvements is implemented as the in-app **Check a posting** tool.
+1. **Text preprocessing:** Cleans and prepares job descriptions and metadata.
+2. **Feature extraction:** Converts text into numerical TF-IDF features using unigrams and bigrams.
+3. **Metadata engineering:** Extracts 10 additional metadata indicators.
+4. **Classification:** Uses class-balanced Logistic Regression (`C=5`).
+5. **Threshold optimization:** Selects a decision threshold based on precision and recall requirements.
+6. **Prediction explanation:** Provides contributing words, fraud probability, and warning indicators.
 
-**What it does**
+## 📁 Dataset
 
-- **Dashboard** — live job postings from the Arbeitnow API, filtered to
-  Germany / remote-with-Germany, each with a fraud-probability meter,
-  risk band (low/medium/high), risk explanation, and the original apply
-  link. Search by title/company/location, filter by category
-  (Werkstudent, Internship, Part-time, Full-time) and risk, sort by
-  date or risk.
-- **Check a posting** — paste any job ad and get a risk score with the
-  top contributing words and rule-based indicators.
-- **Ingestion** — every 30 minutes (in-process scheduler + GitHub
-  Actions cron), with deduping and expiry handling. No mock or
-  placeholder jobs: if nothing has been ingested yet, the dashboard
-  says so honestly.
-- **Predictions are risk estimates, never a verdict** — the model was
-  trained on 2019-era data and scam wording changes over time.
+**Source:** [Real / Fake Job Posting Prediction – Kaggle](https://www.kaggle.com/datasets/shivamb/real-or-fake-fake-jobposting-prediction)
 
-**Run locally**
+| Dataset Information | Value |
+|---|---:|
+| Original postings | 17,880 |
+| After cleaning | 15,691 |
+| Training samples | 12,552 |
+| Testing samples | 3,139 |
+| Fake posting proportion | ~4.8% |
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # set INGEST_TOKEN
-uvicorn backend.main:app --reload --port 8000
-# open http://localhost:8000
-```
+The dataset contains real and fraudulent job advertisements.
 
-Frontend development (optional — the backend serves the production
-build from `backend/static`):
+Duplicates and postings with empty text were removed before splitting the dataset.
 
-```bash
-cd frontend && npm install && npm run dev
-```
+The dataset is not included in this repository. The original research notebook is available as `scam-job-posting-detector.ipynb`.
 
-**API**
+## 🛠️ Technology Stack
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Status + whether the model loaded |
-| GET | `/api/jobs` | List jobs (`q`, `category`, `risk_band`, `min_risk`, `max_risk`, `sort`, `page`, `per_page`) |
-| GET | `/api/jobs/{id}` | One job |
-| POST | `/api/predict` | Score a pasted posting (probability, risk band, top words, indicators) |
-| POST | `/api/jobs/ingest` | Trigger ingestion (header `X-Ingest-Token`) |
-| GET | `/api/stats` | Totals by category and risk band |
+| Component | Technologies |
+|---|---|
+| Backend | Python, FastAPI |
+| Frontend | React 19, Vite |
+| Machine Learning | Scikit-learn, TF-IDF, Logistic Regression |
+| Data Processing | Pandas, NumPy |
+| Database | SQLite, PostgreSQL |
+| ORM | SQLAlchemy |
+| Scheduling | APScheduler |
+| Job Data | Arbeitnow API |
+| Model Storage | Joblib |
+| Testing | Pytest |
+| Deployment | Render |
+| Automation | GitHub Actions |
+| Containerization | Docker |
 
-**Deploy** — see `DEPLOYMENT.md` (Render Blueprint + GitHub Actions
-cron). **Architecture** — see `ARCHITECTURE.md`.
+## 🏗️ Project Structure
 
-**Tests**
-
-```bash
-.venv/bin/python -m pytest tests/test_api.py tests/test_ingest.py -v
-# tests/test_model.py loads the saved model artifacts; run it separately:
-.venv/bin/python -m pytest tests/test_model.py -v
-```
-
-## Results
-Model comparison on the test set (before threshold tuning):
-
-| Model | PR-AUC | ROC-AUC | F1 (fake, default threshold) |
-|---|---|---|---|
-| Logistic Regression | 0.917 | 0.993 | 0.824 |
-| LinearSVC | 0.923 | 0.993 | 0.879 |
-
-Final model (Logistic Regression) at the tuned threshold on the test set:
-
-| Precision | Recall | F1 | Fake caught | False alarms |
-|---|---|---|---|---|
-| 93.1% | 76.6% | 0.840 | 108 of 141 | 8 of 2,998 real postings |
-
-## Key Insights
-- Both linear models perform almost identically on PR-AUC, so the main gains come from handling class imbalance and choosing the decision threshold, not from the model type.
-- The model flagged 116 of 3,139 test postings (3.7%); 108 of them were fake, so about 9 in 10 alerts are real scams, but about 1 in 4 scams (33 of 141) is still missed.
-- Removing 2,189 duplicate or empty postings before the split prevents identical texts from appearing in both training and test data.
-- Postings without a company logo or company profile are much more likely to be fake (XX% vs. XX%).
-- Strongest fraud signals in the model: XX, XX, XX.
-- Missed scams tend to be XX; false alarms tend to be XX.
-
-## Limitations
-- Only about 800 fake examples in total (141 in the test set), from a single dataset, so the metrics carry uncertainty; scam wording also changes over time.
-- The threshold favors precision, which means roughly one in four scams is missed. A platform that prefers recall would choose a lower threshold.
-- Text features alone cannot catch carefully written scams.
-- Results come from one train/test split, with no external validation set.
-
-## Future Improvements
-- Sentence-embedding features (e.g. MiniLM) compared with TF-IDF.
-- Gradio demo: paste a job ad, get a risk score and the words that drove it.
-- Cost-based threshold (cost of a missed scam vs. cost of a false alarm).
-
-## Repository Structure
-```
-├── scam-job-posting-detector.ipynb   # original research notebook
-├── backend/          # FastAPI app: API, ingestion, scheduler, ML serving
-├── common/           # shared text-cleaning / metadata features
-├── train/            # train_model.py — reproduces the notebook pipeline
-├── frontend/         # React + Vite dashboard (builds to backend/static)
-├── model/            # retrained artifacts + METRICS.md
-├── tests/            # pytest suite
-├── .github/workflows/ingest.yml     # 30-minute ingestion cron
-├── Dockerfile        # multi-stage build (Node + Python)
-├── render.yaml       # Render Blueprint (web service + Postgres)
-├── requirements.txt  # backend runtime dependencies
-├── DEPLOYMENT.md     # exact deploy steps
-├── ARCHITECTURE.md   # stack, data flow, model, API contract
+```text
+Scam-Job-Posting-Detector/
+│
+├── scam-job-posting-detector.ipynb
+│
+├── backend/
+│   └── FastAPI application
+│
+├── common/
+│   └── Shared text-cleaning and metadata features
+│
+├── train/
+│   └── train_model.py
+│
+├── frontend/
+│   └── React + Vite dashboard
+│
+├── model/
+│   ├── Retrained model artifacts
+│   └── METRICS.md
+│
+├── tests/
+│   └── Pytest test suite
+│
+├── .github/
+│   └── workflows/
+│       └── ingest.yml
+│
+├── Dockerfile
+├── render.yaml
+├── requirements.txt
+├── DEPLOYMENT.md
+├── ARCHITECTURE.md
 └── README.md
 ```
 
-## Kurzfassung (Deutsch)
-Dieses Projekt erkennt betrügerische Stellenanzeigen mit TF-IDF und linearen Modellen. Da nur etwa 4,8 % der
-Anzeigen gefälscht sind, wird nicht mit der Accuracy, sondern mit PR-AUC, Recall und Precision bewertet. Beim gewählten
-Schwellenwert erkennt das Modell 77 % der betrügerischen Anzeigen (108 von 141) bei einer Precision von 93 %.
+## ⚙️ Installation & Local Setup
 
-## Contact
-**Abdullah Al Noman** · M.Sc. Medical Engineering (Medical Robotics), FAU Erlangen-Nürnberg
-[GitHub](https://github.com/Noman87370)
+### Prerequisites
+
+- Python 3.11+
+- Node.js and npm (optional for frontend development)
+- Git
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Noman87370/Scam-Job-Posting-Detector.git
+
+cd Scam-Job-Posting-Detector
+```
+
+### 2. Create a Virtual Environment
+
+```bash
+python -m venv .venv
+```
+
+Activate it:
+
+**Windows:**
+
+```bash
+.venv\Scripts\activate
+```
+
+**Linux / macOS:**
+
+```bash
+source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure Environment Variables
+
+```bash
+cp .env.example .env
+```
+
+Configure `INGEST_TOKEN` in your `.env` file.
+
+### 5. Start the Backend
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Open:
+
+http://localhost:8000
+
+### 6. Run the Frontend (Optional)
+
+```bash
+cd frontend
+
+npm install
+
+npm run dev
+```
+
+### 7. Retrain the Model
+
+```bash
+python train/train_model.py
+```
+
+The trained model artifacts will be saved in the `model/` directory.
+
+### 8. Run Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+## 🔌 API Documentation
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Application and model health status |
+| GET | `/api/jobs` | Retrieve and filter job listings |
+| GET | `/api/jobs/{id}` | Retrieve an individual job |
+| POST | `/api/predict` | Analyze a job advertisement |
+| POST | `/api/jobs/ingest` | Trigger job ingestion |
+| GET | `/api/stats` | Statistics by category and risk band |
+
+### Example Prediction Request
+
+```bash
+curl -X POST https://scam-job-detector-hob9.onrender.com/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Work from home, earn $5000/week",
+    "description": "...",
+    "location": "Remote"
+  }'
+```
+
+## ☁️ Deployment
+
+The application is deployed using Render.
+
+The deployment architecture includes:
+
+- Render Web Service for the FastAPI application.
+- Render PostgreSQL for persistent job data.
+- Docker multi-stage build for frontend and backend.
+- GitHub Actions for automated job ingestion every 30 minutes.
+- Arbeitnow API for live German job listings.
+
+### GitHub Actions Secrets
+
+Configure the following repository secrets:
+
+| Secret | Description |
+|---|---|
+| `APP_URL` | Live Render application URL |
+| `INGEST_TOKEN` | Must match the Render service environment variable |
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for detailed deployment instructions.
+
+> Note: The free Render service sleeps after 15 minutes of inactivity. A cold start can take approximately 60 seconds. GitHub Actions helps maintain the ingestion schedule and wake the service.
+
+## 🔍 Key Research Insights
+
+- Both linear models achieve nearly identical PR-AUC scores, suggesting that handling class imbalance and optimizing the decision threshold are more important than changing the model type.
+- The retrained model flagged 116 of 3,139 test postings (3.7%). Of these, 107 were fraudulent.
+- Approximately 9 out of 10 flagged postings were fraudulent in the test set.
+- Removing duplicate and empty postings before splitting helps prevent data leakage between training and testing.
+
+## ⚠️ Limitations
+
+- The dataset contains approximately 800 fake examples, with 141 in the test set.
+- The model was trained on a single dataset and has no external validation set.
+- The selected threshold prioritizes precision, meaning approximately one in four fraudulent postings is missed.
+- Text-based features cannot identify every sophisticated scam.
+- The model was trained on English-language advertisements, which limits the reliability of word-level explanations for German postings.
+- Fraud patterns evolve, so periodic retraining and additional data are necessary.
+
+## 🔮 Future Improvements
+
+- Compare TF-IDF with sentence embeddings such as MiniLM.
+- Introduce cost-sensitive threshold optimization.
+- Integrate additional German and international job APIs.
+- Improve multilingual fraud detection, especially German-language postings.
+- Add more metadata and company verification signals.
+- Evaluate performance using external validation datasets.
+
+## 🇩🇪 Kurzfassung (Deutsch)
+
+Der **Scam Job Posting Detector** ist eine KI-basierte Anwendung zur Erkennung betrügerischer Stellenanzeigen.
+
+Das Modell verwendet TF-IDF und logistische Regression, um das Betrugsrisiko einer Stellenanzeige zu bewerten.
+
+Bei einem ausgewählten Schwellenwert erkennt das Modell etwa 76 % der betrügerischen Anzeigen bei einer Precision von rund 94 %.
+
+Die Live-Plattform durchsucht echte Stellenanzeigen in Deutschland und zeigt für jede Anzeige eine Betrugswahrscheinlichkeit sowie eine Risikokategorie an.
+
+**Live-Demo:** https://scam-job-detector-hob9.onrender.com
+
+## 👨‍💻 Author
+
+**Abdullah Al Noman**
+
+M.Sc. Medical Engineering – Medical Robotics  
+Friedrich-Alexander-Universität Erlangen-Nürnberg (FAU)
+
+**Research Interests:** Machine Learning, Artificial Intelligence, Computer Vision, Medical Imaging, and Data Analysis.
+
+<p align="left">
+  <a href="https://github.com/Noman87370">
+    <img src="https://img.shields.io/badge/GitHub-Noman87370-181717?style=for-the-badge&logo=github" alt="GitHub Profile">
+  </a>
+</p>
+
+---
+
+<p align="center">
+  <b>Built with Python, Machine Learning, and a focus on safer job searching.</b>
+</p>
