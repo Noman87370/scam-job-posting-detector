@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { STRINGS, EXAMPLES_EN, EXAMPLES_DE } from './i18n.js'
 
-// Replace {name} placeholders in a translated template.
 function fmt(template, vars) {
   let out = template || ''
   for (const [k, v] of Object.entries(vars || {})) out = out.replaceAll(`{${k}}`, String(v))
@@ -18,6 +17,7 @@ function defaultUiLang() {
 }
 
 const CATEGORIES = ['', 'Werkstudent', 'Internship', 'Part-time', 'Full-time', 'Other']
+const PAGE_SIZE = 20
 const BAND_VALUES = ['high', 'some', 'few']
 const SORT_VALUES = ['newest', 'oldest', 'risk_desc', 'risk_asc']
 
@@ -30,8 +30,7 @@ const SEVERITY_KEY = {
   critical: 'severityCritical', strong: 'severityStrong', mild: 'severityMild',
 }
 
-// The four user-reported context checkboxes (German check only).
-// Ids match backend/rules_de.py CHECKBOXES.
+// Ids must match backend/rules_de.py CHECKBOXES (German check only).
 const CONTEXT_FLAGS = [
   { id: 'unsolicited', key: 'ctxUnsolicited' },
   { id: 'asked_id', key: 'ctxAskedId' },
@@ -109,12 +108,13 @@ function JobCard({ job, tr, uiLang }) {
   const isDe = job.language === 'de' && method === 'de'
   const isEn = job.language === 'en'
   const present = (indicators.indicators || []).filter((i) => i.present)
-  // New explanation keys; fall back to the older stored shape.
+  // Stored feed rows may still use the older top_fraud_words / top_legit_words shape.
   const raising = indicators.top_raising
     || (indicators.top_fraud_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
   const lowering = indicators.top_lowering
     || (indicators.top_legit_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
   const deMatched = indicators.matched || []
+  const snippet = (job.description || '').slice(0, 220)
 
   return (
     <article className="card">
@@ -142,7 +142,7 @@ function JobCard({ job, tr, uiLang }) {
         )}
       </div>
       <p className="snippet">
-        {(job.description || '').slice(0, 220)}
+        {snippet}
         {(job.description || '').length > 220 ? '…' : ''}
       </p>
       {isDe && (
@@ -273,7 +273,9 @@ function CheckPosting({ tr, uiLang }) {
       }
       setResult(await res.json())
     } catch (err) {
-      setError(`${tr('scoreError')}${err.message}`)
+      // Store the raw message; the prefix is translated at render time so
+      // it follows the current UI language.
+      setError(err.message)
     } finally {
       setBusy(false)
     }
@@ -345,18 +347,14 @@ function CheckPosting({ tr, uiLang }) {
       </form>
       <p className="privacy">{tr('privacy')}</p>
       {busy && <p>{tr('scoringBusy')}</p>}
-      {error && <p className="error">{error}</p>}
-      {result && result.path === 'needs_choice' && (
+      {error && <p className="error">{tr('scoreError')}{error}</p>}
+      {result && (result.path === 'needs_choice' || result.path === 'unsupported') && (
         <div className="result">
-          <p className="lang-warning">{tr(result.mixed ? 'needsChoiceMixed' : 'needsChoiceUnsure')}</p>
-          {result.detected_language && (
-            <p>{fmt(tr('detectedLanguage'), { lang: result.detected_language })}</p>
-          )}
-        </div>
-      )}
-      {result && result.path === 'unsupported' && (
-        <div className="result">
-          <p className="lang-warning">{tr('unsupported')}</p>
+          <p className="lang-warning">
+            {tr(result.path === 'needs_choice'
+              ? (result.mixed ? 'needsChoiceMixed' : 'needsChoiceUnsure')
+              : 'unsupported')}
+          </p>
           {result.detected_language && (
             <p>{fmt(tr('detectedLanguage'), { lang: result.detected_language })}</p>
           )}
@@ -442,7 +440,7 @@ export default function App() {
     setError('')
     try {
       const params = new URLSearchParams({
-        page: String(page), per_page: '20', sort,
+        page: String(page), per_page: String(PAGE_SIZE), sort,
       })
       if (q) params.set('q', q)
       if (category) params.set('category', category)
@@ -453,7 +451,9 @@ export default function App() {
       setJobs(data.items)
       setTotal(data.total)
     } catch (err) {
-      setError(`${tr('loadError')}${err.message}`)
+      // Store the raw message; the prefix is translated at render time so
+      // it follows the current UI language.
+      setError(err.message)
     } finally {
       setLoading(false)
     }
@@ -464,7 +464,7 @@ export default function App() {
     fetch('/api/stats').then((r) => r.json()).then(setStats).catch(() => {})
   }, [])
 
-  const pages = Math.max(1, Math.ceil(total / 20))
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="app">
@@ -511,7 +511,7 @@ export default function App() {
       </section>
 
       {loading && <p>{tr('loadingJobs')}</p>}
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{tr('loadError')}{error}</p>}
       {!loading && !error && total === 0 && (
         <p className="empty">{tr('emptyJobs')}</p>
       )}

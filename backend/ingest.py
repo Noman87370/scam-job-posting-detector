@@ -77,7 +77,7 @@ GERMAN_CITIES = {
     "regensburg", "ingolstadt", "würzburg", "fürth", "wolfsburg", "ulm",
     "heilbronn", "pforzheim", "göttingen", "bottrop", "trier",
     "recklinghausen", "bremerhaven", "jena", "remscheid", "erlangen",
-    "freiburg", "ulm", "koblenz", "siegen", "hildesheim", "salzgitter",
+    "koblenz", "siegen", "hildesheim", "salzgitter",
     "kaiserslautern", "cottbus", "schwerin",
 }
 
@@ -319,10 +319,10 @@ def ingest_arbeitnow(db: Session | None = None) -> dict:
             remote = str(raw.get("remote") or "").lower() == "true"
             if not is_german(location, remote):
                 continue
-            counts["kept"] += 1
             external_id = str(raw.get("slug") or "")
             if not external_id:
                 continue
+            counts["kept"] += 1
             if external_id in seen_ids:
                 # Same posting twice in one feed: a duplicate, not an update.
                 counts["duplicates"] += 1

@@ -15,7 +15,7 @@ from .database import Base
 
 
 class Job(Base):
-    """One job listing, scored by the ML model at ingest time."""
+    """One job listing, scored at ingest time."""
 
     __tablename__ = "jobs"
     __table_args__ = (
@@ -44,7 +44,10 @@ class Job(Base):
     # ISO 639-1 language code detected at ingest ("en", "de", ...).
     # None for rows ingested before this column existed (backfilled).
     language = Column(String(10), nullable=True)
-    # JSON: {"top_raising": [...], "top_lowering": [...], "indicators": [...]}
+    # JSON. ML rows: {"method": "ml", "top_raising": [...],
+    # "top_lowering": [...], "indicators": [...]}. German rows:
+    # {"method": "de", "rules_version": ..., "matched": [...],
+    # "critical"/"strong"/"mild": ...}.
     indicators = Column(Text, nullable=False, default="{}")
     expired = Column(Boolean, nullable=False, default=False, index=True)
 

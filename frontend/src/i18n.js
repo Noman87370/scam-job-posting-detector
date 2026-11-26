@@ -1,7 +1,6 @@
-// All visible UI text lives here, as key -> {de, en}, so a native
-// speaker can proofread it. German uses the formal "Sie".
-// (Rule explanations for the German checker live in
-// backend/rules_de.py, in both languages; the API returns them.)
+// All visible UI text lives here, as key -> {de, en}. German uses the
+// formal "Sie". Rule explanations for the German checker live in
+// backend/rules_de.py; the API returns them.
 
 export const STRINGS = {
   appTitle: {
@@ -410,23 +409,9 @@ export const STRINGS = {
   },
 }
 
-// Reported results on the English test set (3,139 postings, 141 fake).
-// These are the notebook's numbers — the only metrics shown anywhere
-// in the UI. (The retrained model's own measurements live in
-// model/METRICS.md.)
-export const NOTEBOOK_METRICS = {
-  precision: '93.1%',
-  recall: '76.6%',
-  prAuc: '0.917',
-  caught: '108 of 141',
-  falseAlarms: '8',
-  testSize: '3,139',
-}
-
 // Fictional example postings (no real company names). The scam-like
 // ones are deliberately loud; the normal ones are ordinary working
-// student ads. Both load into the form so visitors can see how the
-// fields map to the checker.
+// student ads.
 export const EXAMPLES_EN = {
   scam: {
     title: 'Earn $4,500 per week working from home — no experience needed',

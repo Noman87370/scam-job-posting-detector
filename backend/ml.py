@@ -37,14 +37,15 @@ import os
 import re
 import sys
 
+# common/ lives next to backend/; make it importable whatever the CWD is.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 from scipy.sparse import csr_matrix, hstack
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from common.features import META_COLS, build_features, merge_text  # noqa: E402
-from .config import MODEL_DIR  # noqa: E402
-from .language import detect_language, language_name  # noqa: E402
+from common.features import META_COLS, build_features, merge_text
+from .config import MODEL_DIR
+from .language import detect_language, language_name
 
 # Notebook threshold (decision-function score). The artifact file may
 # carry its own "threshold" (exported from the notebook); that value
@@ -90,8 +91,8 @@ class ModelNotAvailable(Exception):
 
 
 def _load():
-    global _model, _vectorizer, _metadata, _feature_names, _readable_names
-    global _threshold, _artifact_file
+    global _model, _vectorizer, _metadata, _feature_names, _readable_names, \
+        _threshold, _artifact_file
     if _model is not None:
         return _model, _vectorizer, _metadata
     import joblib
@@ -141,7 +142,12 @@ def decision_threshold() -> float:
 
 
 def model_info() -> dict:
-    """Metadata about the model (no artifact loading beyond the JSON)."""
+    """Model metadata from metadata.json, plus the decision threshold.
+
+    Reading the threshold loads the artifacts if they are present
+    (decision_threshold() calls _load()); when they are absent the
+    notebook default is reported instead.
+    """
     meta_path = os.path.join(MODEL_DIR, "metadata.json")
     info = {"model": None, "error": "metadata.json not found"}
     if os.path.exists(meta_path):
@@ -189,10 +195,9 @@ _URL_RE = re.compile(r"(https?://|www\.)\S+", re.IGNORECASE)
 
 
 def rule_indicators(fields: dict, clean: str) -> list[dict]:
-    """Additional, factual fraud indicators beyond the model score.
-
-    Each indicator states whether a concrete, checkable property is present
-    in the posting. They are evidence, not a verdict.
+    """Factual fraud indicators beyond the model score: each states
+    whether a concrete, checkable property is present in the posting.
+    They are evidence, not a verdict.
     """
     raw = " ".join(str(fields.get(c) or "") for c in
                    ["title", "company_profile", "description", "requirements", "benefits"])

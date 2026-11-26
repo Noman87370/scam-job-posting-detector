@@ -31,7 +31,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .details li.bad { color: #991b1b; }
 .full-desc { white-space: pre-wrap; color: #334155; max-height: 320px; overflow: auto; }
 .disclaimer { font-size: 0.85rem; color: #64748b; }
-.risk { min-width: 170px; }
 .risk-badge { display: inline-block; margin-top: 6px; padding: 3px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; color: #fff; }
 .risk-badge.risk-few { background: #16a34a; }
 .risk-badge.risk-some { background: #d97706; }
@@ -87,5 +86,4 @@ footer { margin-top: 24px; color: #64748b; font-size: 0.85rem; text-align: cente
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }
   .card-head { flex-direction: column; }
-  .risk { min-width: 0; }
 }

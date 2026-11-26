@@ -32,9 +32,13 @@ import json
 import os
 import sys
 
+# common/ lives next to train/; make it importable whatever the CWD is.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import joblib
 import numpy as np
 import pandas as pd
+import sklearn
 from scipy.sparse import csr_matrix, hstack
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -50,9 +54,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from common.features import META_COLS, TEXT_COLS, build_features, clean_text  # noqa: E402
+from common.features import META_COLS, TEXT_COLS, build_features, clean_text
 
 SEED = 42
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,9 +97,6 @@ def main() -> None:
                                                        "has_company_logo", "has_questions"]})[1]
         for _, row in df.iterrows()
     ]
-    # build_features already merges text from the five text cols; the meta
-    # flags need the raw merged text too, which build_features computes
-    # internally from the same fields — consistent with the notebook.
     meta_arr = np.array(metas, dtype=float)
 
     # Notebook cell 11: stratified 80/20 split, seed 42.
@@ -166,14 +165,11 @@ def main() -> None:
     # Single-file bundle the app loads (same dict as the notebook
     # export cell in the README). The threshold stored here is this
     # run's tuned threshold t.
-    feature_names = list(vec.get_feature_names_out()) + META_COLS
     joblib.dump(
         {"vec": vec, "model": best, "meta_cols": META_COLS,
-         "threshold": float(t), "feature_names": feature_names},
+         "threshold": float(t), "feature_names": list(feature_names)},
         os.path.join(MODEL_DIR, "model_artifacts.joblib"),
     )
-    import sklearn
-
     print(f"scikit-learn version: {sklearn.__version__}")
     metadata = {
         "dataset": "shivamb/real-or-fake-fake-jobposting-prediction (Kaggle)",

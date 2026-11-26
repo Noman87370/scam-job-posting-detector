@@ -1,33 +1,24 @@
 """Rule-based German warning-sign checker.
 
-Transparent, no ML: the rules live in backend/rules_de.py (a plain data
-file the user can edit). This module only runs them.
+No ML: the rules live in backend/rules_de.py (a plain data file the
+user can edit); this module only runs them.
 
-How it works:
-- The text is split into sentences. Each rule's regex runs over the
-  whole text; the matched sentence is returned as evidence so the user
-  can judge for themselves. Evidence is returned as raw text — the
-  frontend renders it with React, which HTML-escapes it.
+- The text is split into sentences. Each rule regex runs over the
+  whole text; the matched sentence is returned as evidence.
+  Evidence is raw text — the frontend renders it with React, which
+  HTML-escapes it.
 - Critical rules are downgraded to "mild" when the matched sentence
-  clearly describes a job duty or a legitimate right-to-work check at
-  employment start (see LEGIT_CONTEXT_MARKERS in rules_de.py). A bank
-  advisor ad that says "Sie eröffnen Konten für unsere Kunden" is a
-  duty, not a demand on the applicant; a work-permit check that asks
-  for a passport copy "für die Arbeitserlaubnis" is a legitimate
-  right-to-work check.
-- Special rule kinds: "messenger_only" (WhatsApp/Telegram/Signal is the
-  only contact channel), "no_company" (no company name, address or
-  Impressum anywhere), "exclamations" (three or more "!").
+  clearly describes a job duty or a legitimate right-to-work check
+  at employment start (LEGIT_CONTEXT_MARKERS in rules_de.py).
+- Special rule kinds: "messenger_only" (WhatsApp/Telegram/Signal is
+  the only contact channel), "no_company" (no company name, address
+  or Impressum anywhere), "exclamations" (three or more "!").
 
-Banding (weights: strong = 2, mild = 1; checkboxes count the same way):
-  any critical            -> "high"   ("Hohes Risiko" / "High risk")
-  2+ strong, or 1 strong with total weight >= 3
-                          -> "some"   ("Einige Warnsignale" / "Some warning signs")
-  otherwise               -> "few"    ("Wenige Warnsignale gefunden" /
-                                       "Few warning signs found"),
-                            always followed by the line that this does
-                            not mean the offer is trustworthy.
-No band ever says the offer is "safe" or "not a scam".
+Banding (weights: strong = 2, mild = 1; checkboxes count the same):
+  any critical -> "high"; 2+ strong, or 1 strong with total weight
+  >= 3 -> "some"; otherwise "few", always followed by the line that
+  this does not mean the offer is trustworthy. No band ever says the
+  offer is "safe" or "not a scam".
 """
 
 import re
@@ -133,13 +124,11 @@ def _check_exclamations(text: str):
 def check_german(text: str, context_flags=None) -> dict:
     """Run the German warning-sign check on raw text.
 
-    context_flags: list of checkbox ids from CHECKBOXES
-    ("unsolicited", "asked_id", "asked_bank_or_fee",
-    "contact_messenger"). Each adds its severity to the counts.
-
-    Returns a dict with band, band labels (de/en), counts, the matched
-    rules (with evidence sentences), the applied checkboxes, and the
-    advice flag for "high" risk.
+    context_flags: checkbox ids from CHECKBOXES ("unsolicited",
+    "asked_id", "asked_bank_or_fee", "contact_messenger"). Each adds
+    its severity to the counts. Returns band, band labels (de/en),
+    counts, matched rules with evidence sentences, applied checkboxes,
+    and the advice flag for "high" risk.
     """
     text = text or ""
     context_flags = list(context_flags or [])
@@ -200,12 +189,12 @@ def check_german(text: str, context_flags=None) -> dict:
             "text_en": checkbox["text_en"],
         })
 
-    critical = sum(1 for m in matched if m["severity"] == "critical")
-    strong = sum(1 for m in matched if m["severity"] == "strong")
-    mild = sum(1 for m in matched if m["severity"] == "mild")
-    critical += sum(1 for c in checkboxes_applied if c["severity"] == "critical")
-    strong += sum(1 for c in checkboxes_applied if c["severity"] == "strong")
-    mild += sum(1 for c in checkboxes_applied if c["severity"] == "mild")
+    def _count(items, severity):
+        return sum(1 for x in items if x["severity"] == severity)
+
+    critical = _count(matched, "critical") + _count(checkboxes_applied, "critical")
+    strong = _count(matched, "strong") + _count(checkboxes_applied, "strong")
+    mild = _count(matched, "mild") + _count(checkboxes_applied, "mild")
 
     if critical >= 1:
         band = "high"

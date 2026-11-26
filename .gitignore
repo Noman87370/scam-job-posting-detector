@@ -12,4 +12,6 @@ backend/static/
 data/
 model/*.joblib
 !model/model_artifacts.joblib
+!model/logreg_model.joblib
+!model/tfidf_vectorizer.joblib
 .DS_Store

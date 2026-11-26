@@ -3,7 +3,7 @@
 # the in-process scheduler also runs while it is awake.
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
-#   APP_URL       e.g. https://scam-job-detector.onrender.com (no trailing slash)
+#   APP_URL       e.g. https://scam-job-detector-hob9.onrender.com (no trailing slash)
 #   INGEST_TOKEN  must match the INGEST_TOKEN env var of the web service
 
 name: Scheduled ingestion

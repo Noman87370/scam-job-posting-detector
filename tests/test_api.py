@@ -200,6 +200,13 @@ def test_predict_german_routes_to_rule_check(monkeypatch, client):
     assert "fraud_probability" not in data
 
 
+def test_frontend_rejects_path_traversal(client):
+    # A ".." in the path must not serve files outside the frontend dir.
+    r = client.get("/..%2f..%2f..%2fetc%2fpasswd")
+    assert r.status_code == 404
+    assert "root:" not in r.text
+
+
 def test_ingest_requires_token(client):
     r = client.post("/api/jobs/ingest")
     assert r.status_code == 401

@@ -30,7 +30,7 @@ UNSURE_PROB = 0.5
 MIXED_SECOND_PROB = 0.20
 
 
-def detect_language(text: str):
+def detect_language(text: str) -> str | None:
     """ISO 639-1 code ('en', 'de', ...) or None if undetectable."""
     if not text or len(text.strip()) < MIN_TEXT_LEN:
         return None
@@ -45,11 +45,10 @@ def detect_language(text: str):
 def analyze_language(text: str, min_len: int = AUTO_MIN_TEXT_LEN) -> dict:
     """Detect language with confidence, for the Auto selector.
 
-    Returns {"code", "confidence", "mixed", "unsure"} where code is the
-    top ISO 639-1 code (or None), confidence its probability (0.0-1.0),
-    mixed True when German and English both look present, and unsure
-    True when detection is too weak to trust (top probability below
-    UNSURE_PROB, text too short, or detection failed).
+    Returns {"code", "confidence", "mixed", "unsure"}: code is the top
+    ISO 639-1 code (or None), confidence its probability (0.0-1.0),
+    mixed True when German and English both look present, unsure True
+    when detection is too weak to trust.
     """
     result = {"code": None, "confidence": 0.0, "mixed": False, "unsure": True}
     if not text or len(text.strip()) < min_len:
@@ -74,12 +73,6 @@ def analyze_language(text: str, min_len: int = AUTO_MIN_TEXT_LEN) -> dict:
     return result
 
 
-def is_english(text: str) -> bool:
-    """True when the text is English, or its language cannot be told."""
-    lang = detect_language(text)
-    return lang is None or lang == "en"
-
-
 # Short display names for the languages the detector may return.
 LANGUAGE_NAMES = {
     "en": "English",
@@ -101,7 +94,7 @@ LANGUAGE_NAMES = {
 }
 
 
-def language_name(code) -> str:
+def language_name(code: str | None) -> str:
     """Human-readable name for an ISO code, or the code itself."""
     if not code:
         return "unknown"

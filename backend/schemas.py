@@ -7,9 +7,11 @@ checker response.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from .ml import DECISION_THRESHOLD
 
 DISCLAIMER = (
     "This is a statistical estimate, not proof. The model misses about "
@@ -127,7 +129,7 @@ class PredictOut(BaseModel):
     decision_score: Optional[float] = None
     risk_band: str = ""  # high | some | few
     risk_label: str = ""  # "High risk" | "Some warning signs" | "Few warning signs"
-    threshold: float = 0.949  # decision-function score for "high risk"
+    threshold: float = DECISION_THRESHOLD  # decision-function score for "high risk"
     top_raising: list[Contribution] = []
     top_lowering: list[Contribution] = []
     indicators: list[Indicator] = []
@@ -174,7 +176,7 @@ class IngestOut(BaseModel):
 class StatsOut(BaseModel):
     total_jobs: int
     active_jobs: int
-    by_category: dict
-    by_risk_band: dict
+    by_category: dict[str, int]
+    by_risk_band: dict[str, int]
     last_ingest: Optional[datetime] = None
     model: dict

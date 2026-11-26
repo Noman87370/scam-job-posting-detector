@@ -2,7 +2,7 @@
 
 Runs inside the web service (APScheduler). A GitHub Actions workflow
 (.github/workflows/ingest.yml) additionally POSTs to /api/jobs/ingest on
-the same schedule, so ingestion also happens if the web dyno sleeps.
+the same schedule, so ingestion also happens if the web service sleeps.
 Failures are logged and recorded on the IngestRun row; they never crash
 the app.
 """

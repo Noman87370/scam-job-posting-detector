@@ -8,8 +8,12 @@ never loads the model artifacts.
 import json
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Optional
+
+# common/ lives next to backend/; make it importable whatever the CWD is.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -17,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from common.features import merge_text
 from . import config
 from .database import Base, engine, ensure_job_columns, get_db
 from .de_rules import check_german
@@ -38,12 +43,6 @@ from .schemas import (
     PredictOut,
     StatsOut,
 )
-
-# common/ lives next to backend/; make it importable whatever the CWD is.
-import sys  # noqa: E402
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common.features import merge_text  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -373,7 +372,12 @@ if os.path.isdir(config.FRONTEND_DIR):
         if full_path.startswith("api/") or full_path in ("health", "docs", "openapi.json"):
             raise HTTPException(status_code=404, detail="Not found")
         index = os.path.join(config.FRONTEND_DIR, "index.html")
-        candidate = os.path.join(config.FRONTEND_DIR, full_path)
+        # Resolve the requested file and reject anything outside the
+        # frontend directory (e.g. "../" in the path).
+        frontend_root = os.path.realpath(config.FRONTEND_DIR)
+        candidate = os.path.realpath(os.path.join(frontend_root, full_path))
+        if os.path.commonpath([candidate, frontend_root]) != frontend_root:
+            raise HTTPException(status_code=404, detail="Not found")
         if full_path and os.path.isfile(candidate):
             return FileResponse(candidate)
         if os.path.isfile(index):
