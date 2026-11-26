@@ -54,7 +54,7 @@ from sqlalchemy.orm import Session
 
 from .config import ARBEITNOW_API, ARBEITNOW_MAX_PAGES
 from .database import SessionLocal
-from .de_rules import check_german
+from .de_rules import RULES_VERSION, check_german
 from .language import detect_language
 from .ml import predict, risk_band
 from .models import IngestRun, Job
@@ -197,6 +197,7 @@ def _score_listing(fields: dict, title: str, description: str) -> dict:
                 "language": "de",
                 "indicators": json.dumps({
                     "method": "de",
+                    "rules_version": result["rules_version"],
                     "matched": result["matched"],
                     "critical": result["critical"],
                     "strong": result["strong"],
@@ -235,7 +236,11 @@ def _backfill_scores(db: Session) -> int:
     follows from the score. German rows get the rule-based check
     instead — their stored ML score was computed on German text, which
     the English-only model cannot judge. Rows already carrying a "de"
-    method marker are skipped. Runs once per row — later runs find
+    method marker are skipped, UNLESS their stored rules_version
+    differs from the current RULES_VERSION: after a rule change the
+    stored rows are re-scored with the new rules, so a fix heals the
+    live feed on the next ingest instead of leaving rows scored under
+    the old rule. Runs once per row per version — later runs find
     nothing to do.
     """
     rows = db.query(Job).all()
@@ -250,7 +255,10 @@ def _backfill_scores(db: Session) -> int:
                 job.language = detect_language(
                     f"{job.title or ''} {job.description or ''}"
                 )
-            if job.language == "de" and indicators.get("method") != "de":
+            if job.language == "de" and (
+                indicators.get("method") != "de"
+                or indicators.get("rules_version") != RULES_VERSION
+            ):
                 result = check_german(
                     f"{job.title or ''} {job.description or ''}"
                 )
@@ -259,6 +267,7 @@ def _backfill_scores(db: Session) -> int:
                 job.risk_band = result["band"]
                 job.indicators = json.dumps({
                     "method": "de",
+                    "rules_version": result["rules_version"],
                     "matched": result["matched"],
                     "critical": result["critical"],
                     "strong": result["strong"],

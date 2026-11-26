@@ -195,6 +195,96 @@ def test_banding_boundaries():
     assert result["band"] == "few"
 
 
+def test_enpal_duty_sentences_do_not_fire_de_id_check():
+    """REGRESSION (2026-11-26): the old de_id_check pattern matched the
+    bare verb stem "identifizier*" / "identifik*", so ordinary duty
+    wording flagged real postings as High risk — all 58 live High rows
+    carried de_id_check. These are the real sentences from live Enpal
+    postings that were wrongly flagged, plus the other inflected forms
+    of the same verbs in ordinary duty sentences. None of them may
+    fire de_id_check, and none may reach a critical band."""
+    cases = {
+        # Real sentence, Enpal "Venture Development Manager – Heat Pump
+        # Sales" (live id 24), flagged High on 2026-11-26.
+        "enpal_growth": (
+            "Venture Development Manager bei der Beispiel GmbH in Berlin. "
+            "Dabei bewegst du dich an der Schnittstelle von Business "
+            "Development, Sales und Operations: Du identifizierst "
+            "Wachstumspotenziale und entwickelst Maßnahmen, um unser "
+            "Geschäft weiter auszubauen. Wir bieten 40 Stunden pro Woche "
+            "und ein festes Gehalt. Bewerbung an bewerbung@beispiel.de, "
+            "Beispiel GmbH, Musterstraße 1, 10115 Berlin."
+        ),
+        # Real sentence, Enpal "Team Lead Operations" (live id 23).
+        "enpal_bottlenecks": (
+            "Team Lead Operations bei der Beispiel GmbH in Berlin. Zu deinen "
+            "Aufgaben gehören regelmäßige Performance-Reviews mit den "
+            "operativen Bereichsleitungen, Identifikation von Engpässen und "
+            "Verbesserungspotenziale sowie die Weiterentwicklung unserer "
+            "Prozesse. Wir bieten 40 Stunden pro Woche und ein festes "
+            "Gehalt. Bewerbung an bewerbung@beispiel.de, Beispiel GmbH, "
+            "Musterstraße 1, 10115 Berlin."
+        ),
+        # Real sentence, Enpal "Business Operations Associate" (live id 494).
+        "enpal_optimisation": (
+            "Business Operations Associate bei der Beispiel GmbH in Berlin. "
+            "Du identifizierst Optimierungspotenziale in bestehenden "
+            "Prozessen und entwickelst pragmatische Lösungen. Wir bieten "
+            "40 Stunden pro Woche und ein festes Gehalt. Bewerbung an "
+            "bewerbung@beispiel.de, Beispiel GmbH, Musterstraße 1, "
+            "10115 Berlin."
+        ),
+        # Inflected forms in ordinary duty sentences.
+        "infinitive": (
+            "Als Analystin oder Analyst bei der Beispiel GmbH in München "
+            "sollst du neue Geschäftsfelder identifizieren und passende "
+            "Maßnahmen vorschlagen. Wir bieten 38 Stunden pro Woche und "
+            "ein festes Gehalt. Bewerbung an bewerbung@beispiel.de, "
+            "Beispiel GmbH, Musterstraße 2, 80331 München."
+        ),
+        "third_person": (
+            "Der Teamleiter identifiziert Engpässe in den Prozessen und "
+            "meldet sie an die Geschäftsführung. Wir suchen eine "
+            "Werkstudentin oder einen Werkstudenten für unser Team in "
+            "Erlangen, 15 Stunden pro Woche, 16 Euro pro Stunde. Bewerbung "
+            "an bewerbung@beispiel.de, Beispiel GmbH, Musterstraße 3, "
+            "91052 Erlangen."
+        ),
+        "noun_form": (
+            "Die Identifikation von Risiken und Chancen ist Teil deiner "
+            "täglichen Arbeit als Consultant bei der Beispiel GmbH in "
+            "Nürnberg. Wir bieten 40 Stunden pro Woche und ein festes "
+            "Gehalt. Bewerbung an bewerbung@beispiel.de, Beispiel GmbH, "
+            "Musterstraße 4, 90402 Nürnberg."
+        ),
+    }
+    for case_id, text in cases.items():
+        result = check_german(text)
+        fired = [m["rule_id"] for m in result["matched"]]
+        assert "de_id_check" not in fired, f"{case_id}: de_id_check fired"
+        assert result["critical"] == 0, f"{case_id}: critical={result['critical']}"
+        assert result["band"] == "few", f"{case_id}: expected few, got {result['band']}"
+
+
+def test_de_id_check_still_fires_on_real_identity_check():
+    """The narrowed rule must still catch a genuine demand: the noun
+    "Identitätsprüfung" (and the ae spelling) in the application
+    process is a critical signal."""
+    for word in ("Identitätsprüfung", "Identitaetspruefung"):
+        text = (
+            f"Zur {word} benötigen wir noch heute Ihre Unterlagen, bevor "
+            "wir den Vertrag vorbereiten. Die Stelle ist in Teilzeit, 20 "
+            "Stunden pro Woche, in Nürnberg. Bewerbung an "
+            "bewerbung@beispiel.de, Beispiel GmbH, Musterstraße 1, "
+            "90402 Nürnberg."
+        )
+        result = check_german(text)
+        fired = [m["rule_id"] for m in result["matched"]]
+        assert "de_id_check" in fired, f"{word}: de_id_check did not fire"
+        assert result["band"] == "high"
+        assert result["critical"] >= 1
+
+
 def test_evidence_is_the_matched_sentence():
     text = (
         "Wir suchen Mitarbeiter für leichte Heimarbeit. Bitte senden Sie uns "

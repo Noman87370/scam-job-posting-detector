@@ -38,6 +38,7 @@ from .rules_de import (
     CHECKBOXES,
     LEGIT_CONTEXT_MARKERS,
     RULES,
+    RULES_VERSION,
 )
 
 FEW_NOTE_DE = (
@@ -218,6 +219,7 @@ def check_german(text: str, context_flags=None) -> dict:
         "band": band,
         "band_label_de": label_de,
         "band_label_en": label_en,
+        "rules_version": RULES_VERSION,
         "critical": critical,
         "strong": strong,
         "mild": mild,

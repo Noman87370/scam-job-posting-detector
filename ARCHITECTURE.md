@@ -82,7 +82,15 @@ React dashboard ◄── FastAPI (main.py) ◄── SQLite / Postgres (SQLAlch
    downgraded to mild when its sentence contains a legit-context
    marker (job duty / right-to-work check). Banding: any critical
    → high; else 2+ strong, or strong + mild totalling a weight of
-   3+ → some; else few. No ML metrics exist for this path.
+   3+ → some; else few. No ML metrics exist for this path. Patterns
+   stay narrow on purpose: the identity-check rule matches only the
+   noun "Identitätsprüfung" — a bare verb stem ("identifizier*")
+   flagged ordinary duty wording and put all 58 High-risk feed rows
+   on one false rule (fixed 2026-11-26; regression tests in
+   `tests/test_de_rules.py` hold the real sentences). The rule set
+   carries a version (`RULES_VERSION`, stored in each German row's
+   indicators); the backfill re-scores rows whose stored version
+   differs, so a rule fix heals the live feed on the next ingest.
 5. **Store** (`backend/models.py`): dedupe on `(source, external_id)`
    and on normalised `(title, company, location)`; update re-seen
    postings in place. Expiry: `posted_at` older than 60 days, or not

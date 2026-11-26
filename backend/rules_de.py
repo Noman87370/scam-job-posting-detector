@@ -31,6 +31,12 @@ ADVICE_LINK = (
     "gefaelschte-stellenanzeigen-was-ist-jobscamming-28475"
 )
 
+# Version of this rule set. Bump it whenever a rule changes. The ingest
+# backfill (backend/ingest.py) re-scores stored German rows whose stored
+# rules_version differs from this one, so a rule fix heals the live
+# feed on the next ingest instead of leaving old rows wrong.
+RULES_VERSION = "2026-11-26-v2"
+
 # Phrases in the matched sentence that show the text is a job duty or a
 # legitimate right-to-work check at employment start — not a demand on
 # the applicant. A critical rule whose matched sentence contains one of
@@ -116,7 +122,16 @@ RULES = [
         "id": "de_id_check",
         "category": "identity",
         "severity": "critical",
-        "pattern": r"identit(?:ae|ä)tspr(?:ue|ü)fung|identifizier\w*|identifik\w*",
+        # NARROWED 2026-11-26: only the noun "Identitätsprüfung" (and its
+        # ae spelling) counts as a demand. The earlier pattern also had
+        # bare "identifizier\\w*|identifik\\w*", which matched ordinary
+        # duty wording — "Du identifizierst Wachstumspotenziale",
+        # "Identifikation von Engpässen" — and flagged all 58 High-risk
+        # feed rows on that one rule. A bare verb stem is not proof that
+        # an identity check is demanded of the applicant. Real scam
+        # signals stay covered by de_id_video (Video-Ident) and
+        # de_id_copy / de_id_passport (ID copies).
+        "pattern": r"identit(?:ae|ä)tspr(?:ue|ü)fung",
         "explanation_de": "Eine Identitätsprüfung wird schon im Bewerbungsverfahren verlangt.",
         "explanation_en": "An identity check is demanded during the application process.",
     },

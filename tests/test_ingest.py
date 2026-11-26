@@ -165,6 +165,70 @@ def test_backfill_german_rows_use_rule_check():
     db.close()
 
 
+def test_backfill_rescores_stale_rules_version_only():
+    # REGRESSION (2026-11-26): a rule change must heal stored rows. A
+    # German row scored under an old rules version is re-scored with
+    # the current rules; a row already at the current version is left
+    # alone, even if its stored band looks wrong.
+    from datetime import datetime
+
+    from backend.de_rules import RULES_VERSION
+
+    db = SessionLocal()
+    db.query(Job).delete()
+    stale_indicators = json.dumps({
+        "method": "de", "rules_version": "2026-11-25-v1",
+        "matched": [{"rule_id": "de_id_check", "severity": "critical"}],
+        "critical": 1, "strong": 0, "mild": 0,
+    })
+    current_indicators = json.dumps({
+        "method": "de", "rules_version": RULES_VERSION,
+        "matched": [{"rule_id": "de_id_check", "severity": "critical"}],
+        "critical": 1, "strong": 0, "mild": 0,
+    })
+    duty_text = (
+        "Venture Development Manager bei der Beispiel GmbH in Berlin. Du "
+        "identifizierst Wachstumspotenziale und entwickelst Maßnahmen, um "
+        "unser Geschäft weiter auszubauen. Wir bieten 40 Stunden pro Woche "
+        "und ein festes Gehalt. Bewerbung an bewerbung@beispiel.de, "
+        "Beispiel GmbH, Musterstraße 1, 10115 Berlin."
+    )
+    db.add(Job(
+        source="arbeitnow", external_id="de-stale",
+        title="Venture Development Manager", company="Beispiel GmbH",
+        location="Berlin, Germany", url="https://example.com/de-stale",
+        description=duty_text, category="Full-time",
+        posted_at=datetime(2026, 11, 24, 9, 0, 0),
+        fetched_at=datetime(2026, 11, 25, 12, 0, 0),
+        fraud_probability=0.0, decision_score=None, risk_band="high",
+        language="de", indicators=stale_indicators,
+    ))
+    db.add(Job(
+        source="arbeitnow", external_id="de-current",
+        title="Venture Development Manager", company="Beispiel GmbH",
+        location="Berlin, Germany", url="https://example.com/de-current",
+        description=duty_text, category="Full-time",
+        posted_at=datetime(2026, 11, 24, 9, 0, 0),
+        fetched_at=datetime(2026, 11, 25, 12, 0, 0),
+        fraud_probability=0.0, decision_score=None, risk_band="high",
+        language="de", indicators=current_indicators,
+    ))
+    db.commit()
+    updated = ingest._backfill_scores(db)
+    assert updated == 1
+    stale = db.query(Job).filter(Job.external_id == "de-stale").first()
+    assert stale.risk_band == "few"  # duty wording, no real warning sign
+    stale_ind = json.loads(stale.indicators)
+    assert stale_ind["rules_version"] == RULES_VERSION
+    assert "de_id_check" not in [m["rule_id"] for m in stale_ind["matched"]]
+    current = db.query(Job).filter(Job.external_id == "de-current").first()
+    assert current.risk_band == "high"  # untouched: current version
+    assert json.loads(current.indicators)["rules_version"] == RULES_VERSION
+    # A second backfill finds nothing to do.
+    assert ingest._backfill_scores(db) == 0
+    db.close()
+
+
 def test_ingest_filters_stores_dedupes(monkeypatch):
     monkeypatch.setattr(ingest, "fetch_arbeitnow", lambda max_pages=10: SAMPLE_JOBS)
     monkeypatch.setattr(ingest, "predict", _fake_score)
