@@ -17,15 +17,23 @@ export const STRINGS = {
   },
   statsActive: {
     de: '{active} aktive Jobs · {total} insgesamt',
-    en: '{active} active jobs · {total} total ingested',
+    en: '{active} active jobs · {total} total',
   },
-  statsLastUpdate: {
-    de: 'Letzte Aktualisierung {date}',
-    en: 'Last update {date}',
+  statsFreshness: {
+    de: 'Aktualisiert {time}',
+    en: 'Updated {time}',
   },
-  statsNoIngest: {
-    de: 'Noch kein Importlauf',
-    en: 'No ingestion run yet',
+  justNow: {
+    de: 'gerade eben',
+    en: 'just now',
+  },
+  minutesAgo: {
+    de: 'vor {n} Min.',
+    en: '{n} min ago',
+  },
+  hoursAgo: {
+    de: 'vor {n} Std.',
+    en: '{n} h ago',
   },
   searchPlaceholder: {
     de: 'Titel, Firma oder Ort suchen…',
@@ -34,10 +42,6 @@ export const STRINGS = {
   allCategories: {
     de: 'Alle Kategorien',
     en: 'All categories',
-  },
-  anyRisk: {
-    de: 'Jedes Risikoniveau',
-    en: 'Any risk level',
   },
   riskHigh: {
     de: 'Hohes Risiko',
@@ -59,25 +63,29 @@ export const STRINGS = {
     de: 'Älteste zuerst',
     en: 'Oldest first',
   },
-  sortRiskDesc: {
-    de: 'Höchstes Risiko zuerst',
-    en: 'Highest risk first',
-  },
-  sortRiskAsc: {
-    de: 'Niedrigstes Risiko zuerst',
-    en: 'Lowest risk first',
-  },
   loadingJobs: {
-    de: 'Jobs werden geladen… Der kostenlose Host braucht beim ersten Aufruf eventuell bis zu einer Minute zum Aufwachen.',
-    en: 'Loading jobs… the free host may need up to a minute to wake up on first load.',
+    de: 'Jobs werden geladen…',
+    en: 'Loading jobs…',
+  },
+  wakingUp: {
+    de: 'Der Server wacht gerade auf — das kann im kostenlosen Tarif bis zu einer Minute dauern. Bitte haben Sie einen Moment Geduld.',
+    en: 'The server is waking up — this can take up to a minute on the free tier. Please bear with us for a moment.',
   },
   loadError: {
     de: 'Jobs konnten nicht geladen werden: ',
     en: 'Could not load jobs: ',
   },
+  retry: {
+    de: 'Erneut versuchen',
+    en: 'Try again',
+  },
+  staleNote: {
+    de: 'Zwischengespeicherte Stellenangebote — die Jobquelle ist derzeit nicht erreichbar. Die Angaben sind möglicherweise nicht aktuell.',
+    en: 'Showing cached listings — the job source is currently unavailable. These listings may be out of date.',
+  },
   emptyJobs: {
-    de: 'Noch keine Jobs importiert. Stellenangebote werden alle 30 Minuten automatisch von der Arbeitnow-Jobbörse (Deutschland) abgerufen. Bitte schauen Sie in Kürze wieder vorbei — es werden keine Platzhalter oder simulierten Jobs angezeigt.',
-    en: 'No jobs have been ingested yet. Listings are collected automatically every 30 minutes from the Arbeitnow job board (Germany-focused). Check back shortly — no placeholder or simulated jobs are shown here.',
+    de: 'Keine Stellenangebote gefunden. Passen Sie Suche oder Filter an — oder schauen Sie später wieder vorbei.',
+    en: 'No job listings found. Try adjusting your search or filters — or check back later.',
   },
   countJobsOne: {
     de: '1 Job gefunden',
@@ -111,25 +119,17 @@ export const STRINGS = {
     de: 'Quelle: {source}',
     en: 'Source: {source}',
   },
-  notScored: {
-    de: 'Nicht bewertet — weder Englisch noch Deutsch',
-    en: 'Not scored — not in English or German',
+  checkThisPosting: {
+    de: 'Diese Anzeige prüfen',
+    en: 'Check this posting',
   },
-  notScoredTitle: {
-    de: 'Das Modell wurde nur auf englischen Anzeigen trainiert; der Regel-Check gilt nur für deutsche Texte.',
-    en: 'The model was trained on English postings only; the rule check only covers German text.',
+  copiedToForm: {
+    de: 'Die Anzeige wurde in das Prüfformular unten übernommen. Bitte prüfen Sie den Text und senden Sie die Prüfung selbst ab — das Ergebnis wird nur Ihnen angezeigt und nicht gespeichert.',
+    en: 'This listing was copied into the check form below. Please review the text and submit the check yourself — the result is shown only to you and is not stored.',
   },
-  deMethodNote: {
-    de: 'Regelbasierte Prüfung (deutsche Verbraucherzentralen)',
-    en: 'Rule-based check (German consumer advice centers)',
-  },
-  riskFlags: {
-    de: '{n} Risikoindikator{plural}: {list}',
-    en: '{n} risk indicator{plural}: {list}',
-  },
-  whyScore: {
-    de: 'Warum diese Bewertung?',
-    en: 'Why this score?',
+  showDetails: {
+    de: 'Beschreibung anzeigen',
+    en: 'Show description',
   },
   hideDetails: {
     de: 'Details ausblenden',
@@ -147,18 +147,6 @@ export const STRINGS = {
     de: 'Was die Bewertung gesenkt hat',
     en: 'What pushed the score down',
   },
-  nothingUp: {
-    de: 'Nichts hat die Bewertung erhöht.',
-    en: 'Nothing pushed the score up.',
-  },
-  nothingDown: {
-    de: 'Nichts hat die Bewertung gesenkt.',
-    en: 'Nothing pushed the score down.',
-  },
-  indicatorsChecked: {
-    de: 'Geprüfte Indikatoren',
-    en: 'Indicators checked',
-  },
   disclaimer: {
     de: 'Dies ist eine statistische Schätzung, kein Beweis. Das Modell übersieht etwa jede vierte betrügerische Anzeige und kann echte Anzeigen fälschlich markieren.',
     en: 'This is a statistical estimate, not proof. The model misses about 1 in 4 scams and can flag real postings.',
@@ -166,10 +154,6 @@ export const STRINGS = {
   descriptionHeading: {
     de: 'Beschreibung',
     en: 'Description',
-  },
-  langWarningJob: {
-    de: 'Dieses Modell wurde nur auf englischen Anzeigen trainiert, daher wäre das Ergebnis unzuverlässig. Für diese Anzeige wird kein Risikoniveau angezeigt.',
-    en: 'This model was trained on English postings, so the result would be unreliable. No risk level is shown for this listing.',
   },
   rulesFound: {
     de: 'Gefundene Warnsignale',

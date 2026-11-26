@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import { STRINGS, EXAMPLES_EN, EXAMPLES_DE } from './i18n.js'
 
@@ -18,13 +18,10 @@ function defaultUiLang() {
 
 const CATEGORIES = ['', 'Werkstudent', 'Internship', 'Part-time', 'Full-time', 'Other']
 const PAGE_SIZE = 20
-const BAND_VALUES = ['high', 'some', 'few']
-const SORT_VALUES = ['newest', 'oldest', 'risk_desc', 'risk_asc']
+const SORT_VALUES = ['newest', 'oldest']
 
-const BAND_KEY = { high: 'riskHigh', some: 'riskSome', few: 'riskFew' }
 const SORT_KEY = {
   newest: 'sortNewest', oldest: 'sortOldest',
-  risk_desc: 'sortRiskDesc', risk_asc: 'sortRiskAsc',
 }
 const SEVERITY_KEY = {
   critical: 'severityCritical', strong: 'severityStrong', mild: 'severityMild',
@@ -41,7 +38,7 @@ const CONTEXT_FLAGS = [
 function RiskBadge({ band, score, tr }) {
   return (
     <span className={`risk-badge risk-${band}`} title={score != null ? `Decision score ${score}` : ''}>
-      {tr(BAND_KEY[band]) || band}
+      {tr({ high: 'riskHigh', some: 'riskSome', few: 'riskFew' }[band]) || band}
       {score != null ? ` · score ${score}` : ''}
     </span>
   )
@@ -52,6 +49,19 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   })
+}
+
+// Relative freshness for the stats line, e.g. "just now" / "12 min ago".
+function fmtFreshness(iso, tr) {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return fmtDate(iso)
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 1) return tr('justNow')
+  if (mins < 60) return fmt(tr('minutesAgo'), { n: mins })
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return fmt(tr('hoursAgo'), { n: hours })
+  return fmtDate(iso)
 }
 
 function fmtContribution(c) {
@@ -101,19 +111,11 @@ function AdviceBox({ link, tr }) {
   )
 }
 
-function JobCard({ job, tr, uiLang }) {
+// Feed listings carry no risk information: title, company, location,
+// category, posted date, source, description snippet, full description
+// on demand, and the link to the original posting.
+function JobCard({ job, tr, onCheck }) {
   const [open, setOpen] = useState(false)
-  const indicators = job.indicators || {}
-  const method = indicators.method || 'ml'
-  const isDe = job.language === 'de' && method === 'de'
-  const isEn = job.language === 'en'
-  const present = (indicators.indicators || []).filter((i) => i.present)
-  // Stored feed rows may still use the older top_fraud_words / top_legit_words shape.
-  const raising = indicators.top_raising
-    || (indicators.top_fraud_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
-  const lowering = indicators.top_lowering
-    || (indicators.top_legit_words || []).map((w) => ({ feature: w.word, contribution: w.contribution }))
-  const deMatched = indicators.matched || []
   const snippet = (job.description || '').slice(0, 220)
 
   return (
@@ -128,84 +130,22 @@ function JobCard({ job, tr, uiLang }) {
             {fmt(tr('postedOn'), { date: fmtDate(job.posted_at) })} · {fmt(tr('sourceLabel'), { source: job.source })}
           </p>
         </div>
-        {isDe ? (
-          <div className="badge-col">
-            <RiskBadge band={job.risk_band} tr={tr} />
-            <span className="method-note">{tr('deMethodNote')}</span>
-          </div>
-        ) : isEn ? (
-          <RiskBadge band={job.risk_band} score={job.decision_score} tr={tr} />
-        ) : (
-          <span className="risk-badge risk-unknown" title={tr('notScoredTitle')}>
-            {tr('notScored')}
-          </span>
-        )}
       </div>
       <p className="snippet">
         {snippet}
         {(job.description || '').length > 220 ? '…' : ''}
       </p>
-      {isDe && (
-        <p className="flags">
-          {fmt(tr('countsLine'), {
-            critical: indicators.critical || 0,
-            strong: indicators.strong || 0,
-            mild: indicators.mild || 0,
-          })}
-        </p>
-      )}
-      {isEn && present.length > 0 && (
-        <p className="flags">
-          {fmt(tr('riskFlags'), {
-            n: present.length,
-            plural: present.length > 1 ? 's' : '',
-            list: present.map((i) => i.label).join(', '),
-          })}
-        </p>
-      )}
       <div className="card-actions">
-        <button onClick={() => setOpen(!open)}>{open ? tr('hideDetails') : tr('whyScore')}</button>
+        <button type="button" onClick={() => setOpen(!open)}>{open ? tr('hideDetails') : tr('showDetails')}</button>
+        <button type="button" className="check-btn" onClick={() => onCheck(job)}>{tr('checkThisPosting')}</button>
         <a href={job.url} target="_blank" rel="noreferrer" className="apply">
           {tr('applyOriginal')}
         </a>
       </div>
       {open && (
         <div className="details">
-          {isDe ? (
-            <>
-              <h4>{tr('rulesFound')}</h4>
-              <DeRulesList matched={deMatched} checkboxes={[]} tr={tr} uiLang={uiLang} />
-              <p className="disclaimer">{tr('deMethodNote')}</p>
-            </>
-          ) : isEn ? (
-            <>
-              <h4>{tr('pushedUp')}</h4>
-              {raising.length > 0 ? (
-                <p>{raising.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
-              ) : (
-                <p>{tr('nothingUp')}</p>
-              )}
-              <h4>{tr('pushedDown')}</h4>
-              {lowering.length > 0 ? (
-                <p>{lowering.map((w) => `${w.feature} (${fmtContribution(w.contribution)})`).join(', ')}</p>
-              ) : (
-                <p>{tr('nothingDown')}</p>
-              )}
-              <h4>{tr('indicatorsChecked')}</h4>
-              <ul>
-                {(indicators.indicators || []).map((i) => (
-                  <li key={i.code} className={i.present ? 'bad' : 'good'}>
-                    {i.present ? '✗' : '✓'} <strong>{i.label}.</strong> {i.detail}
-                  </li>
-                ))}
-              </ul>
-              <h4>{tr('descriptionHeading')}</h4>
-              <p className="full-desc">{job.description}</p>
-              <p className="disclaimer">{tr('disclaimer')}</p>
-            </>
-          ) : (
-            <p className="lang-warning">{tr('langWarningJob')}</p>
-          )}
+          <h4>{tr('descriptionHeading')}</h4>
+          <p className="full-desc">{job.description}</p>
         </div>
       )}
     </article>
@@ -224,13 +164,28 @@ const TEXT_FIELDS = [
   'requirements', 'benefits', 'company_profile', 'salary_range',
 ]
 
-function CheckPosting({ tr, uiLang }) {
+function CheckPosting({ tr, uiLang, prefill, copiedNote, onCopiedNoteDismiss }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [postingLang, setPostingLang] = useState('auto')
   const [contextFlags, setContextFlags] = useState([])
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // A "Check this posting" click from a feed card fills the form and
+  // resets the posting language to Auto. It never auto-submits and never
+  // clears a result the user already has.
+  useEffect(() => {
+    if (!prefill) return
+    setForm({
+      ...EMPTY_FORM,
+      title: prefill.title || '',
+      company: prefill.company || '',
+      location: prefill.location || '',
+      description: prefill.description || '',
+    })
+    setPostingLang('auto')
+  }, [prefill])
 
   const totalChars = TEXT_FIELDS.reduce((n, k) => n + (form[k] || '').length, 0)
   const tooShort = totalChars < 100
@@ -254,6 +209,7 @@ function CheckPosting({ tr, uiLang }) {
   async function submit(e) {
     e.preventDefault()
     if (tooShort || tooLong) return
+    if (onCopiedNoteDismiss) onCopiedNoteDismiss()
     setBusy(true)
     setError('')
     setResult(null)
@@ -287,6 +243,7 @@ function CheckPosting({ tr, uiLang }) {
     <section className="checker">
       <h2>{tr('checkHeading')}</h2>
       <p>{tr('checkIntro')}</p>
+      {copiedNote && <p className="copied-note" role="status">{tr('copiedToForm')}</p>}
       <div className="lang-row">
         <span>{tr('postingLangLabel')}:</span>
         <label className="radio">
@@ -423,11 +380,16 @@ export default function App() {
   const [stats, setStats] = useState(null)
   const [q, setQ] = useState('')
   const [category, setCategory] = useState('')
-  const [riskBand, setRiskBand] = useState('')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [waking, setWaking] = useState(false)
   const [error, setError] = useState('')
+  const [stale, setStale] = useState(false)
+  const [prefill, setPrefill] = useState(null)
+  const [copiedNote, setCopiedNote] = useState(false)
+  const checkerRef = useRef(null)
+  const firstLoadRef = useRef(true)
 
   const tr = (key) => STRINGS[key]?.[uiLang] ?? key
 
@@ -438,33 +400,63 @@ export default function App() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    setWaking(false)
+    // First feed request only: if the free-tier server is asleep, tell
+    // the user after 3 s instead of leaving a bare "Loading…" on screen.
+    const isFirst = firstLoadRef.current
+    const timer = isFirst ? setTimeout(() => setWaking(true), 3000) : null
     try {
       const params = new URLSearchParams({
         page: String(page), per_page: String(PAGE_SIZE), sort,
       })
       if (q) params.set('q', q)
       if (category) params.set('category', category)
-      if (riskBand) params.set('risk_band', riskBand)
       const res = await fetch(`/api/jobs?${params}`)
-      if (!res.ok) throw new Error(`Server returned ${res.status}`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Server returned ${res.status}`)
+      }
       const data = await res.json()
-      setJobs(data.items)
-      setTotal(data.total)
+      setJobs(data.items || [])
+      setTotal(data.total ?? 0)
+      setStale(Boolean(data.stale))
     } catch (err) {
       // Store the raw message; the prefix is translated at render time so
       // it follows the current UI language.
       setError(err.message)
+      setJobs([])
+      setTotal(0)
+      setStale(false)
     } finally {
+      if (timer) clearTimeout(timer)
+      setWaking(false)
       setLoading(false)
+      firstLoadRef.current = false
     }
-  }, [q, category, riskBand, sort, page])
+  }, [q, category, sort, page])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    fetch('/api/stats').then((r) => r.json()).then(setStats).catch(() => {})
+    fetch('/api/stats')
+      .then((r) => { if (!r.ok) throw new Error(`stats ${r.status}`); return r.json() })
+      .then(setStats)
+      .catch(() => { /* stats line is simply omitted if it fails to load */ })
   }, [])
 
+  function handleCheck(job) {
+    setPrefill({
+      title: job.title || '',
+      company: job.company || '',
+      location: job.location || '',
+      description: job.description || '',
+      nonce: Date.now(),
+    })
+    setCopiedNote(true)
+    checkerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const freshness = stats?.feed?.cached_at ? fmtFreshness(stats.feed.cached_at, tr) : null
 
   return (
     <div className="app">
@@ -483,7 +475,7 @@ export default function App() {
         {stats && (
           <p className="stats-line">
             {fmt(tr('statsActive'), { active: stats.active_jobs, total: stats.total_jobs })}
-            {stats.last_ingest ? ` · ${fmt(tr('statsLastUpdate'), { date: fmtDate(stats.last_ingest) })}` : ` · ${tr('statsNoIngest')}`}
+            {freshness ? ` · ${fmt(tr('statsFreshness'), { time: freshness })}` : ''}
           </p>
         )}
       </header>
@@ -499,37 +491,54 @@ export default function App() {
             <option key={c} value={c}>{c || tr('allCategories')}</option>
           ))}
         </select>
-        <select value={riskBand} onChange={(e) => { setRiskBand(e.target.value); setPage(1) }}>
-          <option value="">{tr('anyRisk')}</option>
-          {BAND_VALUES.map((b) => (
-            <option key={b} value={b}>{tr(BAND_KEY[b])}</option>
-          ))}
-        </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
           {SORT_VALUES.map((s) => <option key={s} value={s}>{tr(SORT_KEY[s])}</option>)}
         </select>
       </section>
 
-      {loading && <p>{tr('loadingJobs')}</p>}
-      {error && <p className="error">{tr('loadError')}{error}</p>}
+      {loading && (
+        <div className="state-box loading-state" role="status">
+          <p>{tr('loadingJobs')}</p>
+          {waking && <p>{tr('wakingUp')}</p>}
+        </div>
+      )}
+      {!loading && error && (
+        <div className="state-box error" role="alert">
+          <p>{tr('loadError')}{error}</p>
+          <button type="button" onClick={load}>{tr('retry')}</button>
+        </div>
+      )}
+      {!loading && !error && stale && (
+        <p className="state-box stale-note" role="status">{tr('staleNote')}</p>
+      )}
       {!loading && !error && total === 0 && (
-        <p className="empty">{tr('emptyJobs')}</p>
+        <p className="state-box empty" role="status">{tr('emptyJobs')}</p>
       )}
       {!loading && !error && total > 0 && (
         <>
           <p className="count">{total === 1 ? tr('countJobsOne') : fmt(tr('countJobsMany'), { n: total })}</p>
           <div className="list">
-            {jobs.map((job) => <JobCard key={job.id} job={job} tr={tr} uiLang={uiLang} />)}
+            {jobs.map((job) => (
+              <JobCard key={job.id} job={job} tr={tr} onCheck={handleCheck} />
+            ))}
           </div>
           <div className="pager">
-            <button disabled={page <= 1} onClick={() => setPage(page - 1)}>{tr('prevPage')}</button>
+            <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>{tr('prevPage')}</button>
             <span>{fmt(tr('pageOf'), { page, pages })}</span>
-            <button disabled={page >= pages} onClick={() => setPage(page + 1)}>{tr('nextPage')}</button>
+            <button type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>{tr('nextPage')}</button>
           </div>
         </>
       )}
 
-      <CheckPosting tr={tr} uiLang={uiLang} />
+      <div ref={checkerRef}>
+        <CheckPosting
+          tr={tr}
+          uiLang={uiLang}
+          prefill={prefill}
+          copiedNote={copiedNote}
+          onCopiedNoteDismiss={() => setCopiedNote(false)}
+        />
+      </div>
 
       <footer>
         <p>{tr('footerModel')}</p>

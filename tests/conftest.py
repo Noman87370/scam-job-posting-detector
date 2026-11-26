@@ -1,24 +1,22 @@
-"""Test setup: temp SQLite DB, scheduler off, fixed ingest token.
+"""Test setup: no database, no scheduler, no ingest token.
 
-The model artifacts are NOT loaded by these tests (see test_model.py,
-which is the only file that loads them).
+The feed is an in-memory cache (backend/feed.py); the cache is cleared
+before every test so tests never share feed state and never hit the
+live Arbeitnow API unless a test explicitly mocks the fetch.
 """
-
-import os
-import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
 
-_TMP = tempfile.mkdtemp(prefix="scamdetector-test-")
-os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/test.db"
-os.environ["RUN_SCHEDULER"] = "false"
-os.environ["INGEST_TOKEN"] = "test-token"
+from backend import feed
+from backend.main import app
 
-from backend.database import Base, engine  # noqa: E402
-from backend.main import app  # noqa: E402
 
-Base.metadata.create_all(bind=engine)
+@pytest.fixture(autouse=True)
+def _clear_feed_cache():
+    feed.clear_cache()
+    yield
+    feed.clear_cache()
 
 
 @pytest.fixture()

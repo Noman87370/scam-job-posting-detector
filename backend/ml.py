@@ -52,6 +52,27 @@ from .language import detect_language, language_name
 # wins when present, otherwise this default is used.
 DECISION_THRESHOLD = 0.949
 
+# Metrics of the DEPLOYED model, measured on the notebook's held-out
+# test split — the single source of truth for reported metrics.
+# The retrained run's metrics in model/metadata.json (PR-AUC 0.9141,
+# precision 0.9386, recall 0.7589, threshold 1.0322) belong to a
+# separate retraining run and must NOT be presented as this model's
+# metrics. Notebook test set: 3,139 postings, 141 fake; the model
+# caught 108 of the 141 fake postings, with 8 false alarms among the
+# 2,998 real postings (TN 2990, FN 33).
+NOTEBOOK_METRICS = {
+    "source": "notebook",
+    "pr_auc": 0.917,
+    "precision": 0.931,
+    "recall": 0.766,
+    "test_size": 3139,
+    "fake": 141,
+    "tp": 108,
+    "fp": 8,
+    "tn": 2990,
+    "fn": 33,
+}
+
 # Readable names for the 10 metadata flags, for the explanation.
 META_LABELS = {
     "telecommuting": "remote work allowed",
@@ -142,7 +163,13 @@ def decision_threshold() -> float:
 
 
 def model_info() -> dict:
-    """Model metadata from metadata.json, plus the decision threshold.
+    """Model metadata, plus the decision threshold from the artifact.
+
+    The reported metrics are always NOTEBOOK_METRICS — the deployed
+    (notebook) model's numbers. model/metadata.json belongs to a
+    separate retraining run, so its metrics (and its
+    probability_threshold) are never surfaced here; only the model
+    name, dataset and top signals are still read from it.
 
     Reading the threshold loads the artifacts if they are present
     (decision_threshold() calls _load()); when they are absent the
@@ -156,11 +183,10 @@ def model_info() -> dict:
         info = {
             "model": meta.get("model"),
             "dataset": meta.get("dataset"),
-            "probability_threshold": meta.get("probability_threshold"),
-            "metrics": meta.get("metrics"),
             "top_fraud_signals": meta.get("top_fraud_signals"),
             "top_legit_signals": meta.get("top_legit_signals"),
         }
+    info["metrics"] = dict(NOTEBOOK_METRICS)
     try:
         info["decision_threshold"] = decision_threshold()
         info["artifact_file"] = _artifact_file
@@ -266,8 +292,8 @@ def predict(fields: dict) -> dict:
     Returns the decision score and risk band (never a verdict), the
     top features that raised/lowered the score, the rule-based
     indicators, and the detected language. fraud_probability is kept
-    in the returned dict for feed sorting/storage only — the UI must
-    never display it as a "% chance of scam".
+    in the returned dict for internal use only — the API never returns
+    it, and the UI must never display it as a "% chance of scam".
     """
     model, vec, meta = _load()
     threshold = _threshold

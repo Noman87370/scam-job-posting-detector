@@ -1,45 +1,40 @@
-"""API tests that do NOT load the model artifacts.
+"""API tests that do NOT load the model artifacts (except /api/stats,
+which reports model_info like the old suite did).
 
-The /api/predict test monkeypatches the scoring function so the endpoint
-contract is tested without loading the .joblib files.
+The feed is seeded straight into the in-memory cache (backend/feed.py)
+— no database, no network. The /api/predict tests monkeypatch the
+scoring function so the endpoint contract is tested without loading
+the .joblib files.
 """
 
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 
-from backend.database import SessionLocal
-from backend.models import Job
+from backend import feed
 
 
 def _seed_jobs():
-    db = SessionLocal()
-    db.query(Job).delete()
-    now = datetime(2026, 11, 20, 12, 0, 0)
-    rows = [
-        Job(source="arbeitnow", external_id="a1", title="Werkstudent Data Analysis",
-            company="Acme GmbH", location="Berlin, Germany",
-            url="https://example.com/a1", description="Data analysis with Python.",
-            category="Werkstudent", posted_at=datetime(2026, 11, 19, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.05, decision_score=-2.9,
-            risk_band="few", language="en", indicators="{}"),
-        Job(source="arbeitnow", external_id="a2", title="Earn money fast from home",
-            company="Quick Cash Ltd", location="Remote",
-            url="https://example.com/a2", description="Send a fee to start.",
-            category="Full-time", posted_at=datetime(2026, 11, 18, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.92, decision_score=2.4,
-            risk_band="high", language="en", indicators="{}"),
-        Job(source="arbeitnow", external_id="a3", title="Internship Marketing",
-            company="Beta AG", location="Munich, Germany",
-            url="https://example.com/a3", description="Marketing internship.",
-            category="Internship", posted_at=datetime(2026, 11, 17, 9, 0, 0),
-            fetched_at=now, fraud_probability=0.40, decision_score=0.3,
-            risk_band="some", language="de", indicators="{}"),
-    ]
-    db.add_all(rows)
-    db.commit()
-    ids = [r.id for r in rows]
-    db.close()
-    return ids
+    def job(job_id, title, company, location, category, posted):
+        return {
+            "id": f"arbeitnow:{job_id}",
+            "source": "arbeitnow",
+            "external_id": job_id,
+            "title": title,
+            "company": company,
+            "location": location,
+            "url": f"https://example.com/{job_id}",
+            "description": "Data analysis with Python.",
+            "category": category,
+            "posted_at": datetime(2026, 11, posted, 9, 0, 0, tzinfo=timezone.utc),
+        }
+
+    feed.seed_cache([
+        job("a1", "Werkstudent Data Analysis", "Acme GmbH",
+            "Berlin, Germany", "Werkstudent", 19),
+        job("a2", "Earn money fast from home", "Quick Cash Ltd",
+            "Remote", "Full-time", 18),
+        job("a3", "Internship Marketing", "Beta AG",
+            "Munich, Germany", "Internship", 17),
+    ])
 
 
 def test_health(client):
@@ -49,17 +44,30 @@ def test_health(client):
 
 
 def test_list_jobs_empty_then_seeded(client):
-    db = SessionLocal()
-    db.query(Job).delete()
-    db.commit()
-    db.close()
+    feed.seed_cache([])
     r = client.get("/api/jobs")
     assert r.status_code == 200
     assert r.json()["total"] == 0
     assert r.json()["items"] == []
+    assert r.json()["stale"] is False
     _seed_jobs()
     r = client.get("/api/jobs")
     assert r.json()["total"] == 3
+
+
+def test_list_jobs_have_no_risk_fields(client):
+    _seed_jobs()
+    r = client.get("/api/jobs")
+    assert r.status_code == 200
+    for item in r.json()["items"]:
+        assert set(item.keys()) == {
+            "id", "source", "external_id", "title", "company",
+            "location", "url", "description", "category", "posted_at",
+        }
+        assert isinstance(item["id"], str)
+        assert item["id"].startswith("arbeitnow:")
+    assert "cached_at" in r.json()
+    assert r.json()["cached_at"] is not None
 
 
 def test_search_by_title_company_location(client):
@@ -67,36 +75,47 @@ def test_search_by_title_company_location(client):
     assert client.get("/api/jobs", params={"q": "Werkstudent"}).json()["total"] == 1
     assert client.get("/api/jobs", params={"q": "Beta"}).json()["total"] == 1
     assert client.get("/api/jobs", params={"q": "Munich"}).json()["total"] == 1
+    assert client.get("/api/jobs", params={"q": "werkstudent"}).json()["total"] == 1
     assert client.get("/api/jobs", params={"q": "nonexistent"}).json()["total"] == 0
 
 
-def test_category_and_risk_filters(client):
+def test_category_filter(client):
     _seed_jobs()
     assert client.get("/api/jobs", params={"category": "Internship"}).json()["total"] == 1
-    assert client.get("/api/jobs", params={"risk_band": "high"}).json()["total"] == 1
-    assert client.get("/api/jobs", params={"min_risk": 0.5}).json()["total"] == 1
-    assert client.get("/api/jobs", params={"max_risk": 0.1}).json()["total"] == 1
+    assert client.get("/api/jobs", params={"category": "Werkstudent"}).json()["total"] == 1
+    assert client.get("/api/jobs", params={"category": "Other"}).json()["total"] == 0
+
+
+def test_no_risk_filters(client):
+    # The old risk filters are gone: unknown query params are ignored
+    # by FastAPI, and risk sort values are rejected.
+    _seed_jobs()
+    assert client.get("/api/jobs", params={"sort": "risk_desc"}).status_code == 422
+    assert client.get("/api/jobs", params={"sort": "risk_asc"}).status_code == 422
 
 
 def test_sorting_and_pagination(client):
     _seed_jobs()
     newest = client.get("/api/jobs", params={"sort": "newest"}).json()["items"]
     assert newest[0]["title"] == "Werkstudent Data Analysis"
-    riskiest = client.get("/api/jobs", params={"sort": "risk_desc"}).json()["items"]
-    assert riskiest[0]["title"] == "Earn money fast from home"
+    oldest = client.get("/api/jobs", params={"sort": "oldest"}).json()["items"]
+    assert oldest[0]["title"] == "Internship Marketing"
     page1 = client.get("/api/jobs", params={"page": 1, "per_page": 2}).json()
     assert len(page1["items"]) == 2
     page2 = client.get("/api/jobs", params={"page": 2, "per_page": 2}).json()
     assert len(page2["items"]) == 1
     assert page2["items"][0]["id"] != page1["items"][0]["id"]
+    # per_page is capped at 100.
+    assert client.get("/api/jobs", params={"per_page": 101}).status_code == 422
 
 
 def test_get_job_and_404(client):
-    ids = _seed_jobs()
-    r = client.get(f"/api/jobs/{ids[0]}")
+    _seed_jobs()
+    r = client.get("/api/jobs/arbeitnow:a1")
     assert r.status_code == 200
     assert r.json()["title"] == "Werkstudent Data Analysis"
-    assert client.get("/api/jobs/999999").status_code == 404
+    assert r.json()["id"] == "arbeitnow:a1"
+    assert client.get("/api/jobs/arbeitnow:nope").status_code == 404
 
 
 def test_stats(client):
@@ -107,8 +126,22 @@ def test_stats(client):
     assert data["total_jobs"] == 3
     assert data["active_jobs"] == 3
     assert data["by_category"]["Werkstudent"] == 1
-    assert data["by_risk_band"]["high"] == 1
+    assert "by_risk_band" not in data
+    assert "last_ingest" not in data
     assert "model" in data
+    # Notebook metrics are the deployed model's metrics, not the
+    # retrained run's (pr_auc 0.9141 / precision 0.9386 / recall 0.7589).
+    assert data["model"]["metrics"]["pr_auc"] == 0.917
+    assert data["model"]["metrics"]["precision"] == 0.931
+    assert data["model"]["metrics"]["recall"] == 0.766
+    assert data["model"]["metrics"]["source"] == "notebook"
+    assert data["model"]["decision_threshold"] == 0.949
+    feed_info = data["feed"]
+    assert feed_info["source"] == "arbeitnow"
+    assert feed_info["cached_at"] is not None
+    assert isinstance(feed_info["cache_age_seconds"], int)
+    assert feed_info["upstream_ok"] is True
+    assert feed_info["stale"] is False
 
 
 def test_predict_endpoint_contract(monkeypatch, client):
@@ -207,8 +240,6 @@ def test_frontend_rejects_path_traversal(client):
     assert "root:" not in r.text
 
 
-def test_ingest_requires_token(client):
+def test_ingest_endpoint_is_gone(client):
     r = client.post("/api/jobs/ingest")
-    assert r.status_code == 401
-    r = client.post("/api/jobs/ingest", headers={"X-Ingest-Token": "wrong"})
-    assert r.status_code == 401
+    assert r.status_code in (404, 405)

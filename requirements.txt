@@ -3,14 +3,15 @@
 # with — a mismatch breaks loading the pickled model. The artifacts in
 # model/ were trained with scikit-learn 1.9.1 (venv, 2026-11-25); the
 # old 1.5.2 pin did not match the training environment.
+#
+# There is no database: the job feed is fetched server-side from the
+# Arbeitnow API and held in an in-memory cache (backend/feed.py), so
+# sqlalchemy, apscheduler and psycopg2-binary are gone.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
-apscheduler==3.10.4
 httpx==0.28.1
 joblib==1.6.0
 scikit-learn==1.9.1
 scipy==1.18.1
 numpy==2.5.5
 langdetect==1.0.9
-psycopg2-binary==2.9.10

@@ -2,8 +2,9 @@
 
 The checker returns a decision score and a risk band — never a
 probability presented as a "% chance of scam". The fraud probability
-is kept on stored jobs only, for sorting; it is not part of the
-checker response.
+is kept inside the checker only; the job feed carries no risk fields
+at all (no fraud_probability, decision_score, risk_band, language,
+indicators or expiry state).
 """
 
 from datetime import datetime
@@ -44,7 +45,7 @@ DE_METHOD_LABEL_DE = (
 
 
 class JobOut(BaseModel):
-    id: int
+    id: str
     source: str
     external_id: str
     title: str
@@ -54,13 +55,6 @@ class JobOut(BaseModel):
     description: str
     category: str
     posted_at: Optional[datetime] = None
-    fetched_at: datetime
-    fraud_probability: float
-    decision_score: Optional[float] = None
-    risk_band: str
-    language: Optional[str] = None
-    indicators: dict = {}
-    expired: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,6 +64,16 @@ class JobsPage(BaseModel):
     page: int
     per_page: int
     items: list[JobOut]
+    stale: bool = False
+    cached_at: Optional[datetime] = None
+
+
+class FeedInfo(BaseModel):
+    source: str = "arbeitnow"
+    cached_at: Optional[datetime] = None
+    cache_age_seconds: Optional[int] = None
+    upstream_ok: bool = True
+    stale: bool = False
 
 
 class PredictIn(BaseModel):
@@ -162,21 +166,9 @@ class PredictOut(BaseModel):
     de_few_note_en: str = ""
 
 
-class IngestOut(BaseModel):
-    source: str
-    fetched: int
-    kept: int
-    inserted: int
-    updated: int
-    duplicates: int
-    expired_marked: int
-    error: Optional[str] = None
-
-
 class StatsOut(BaseModel):
     total_jobs: int
     active_jobs: int
     by_category: dict[str, int]
-    by_risk_band: dict[str, int]
-    last_ingest: Optional[datetime] = None
     model: dict
+    feed: FeedInfo

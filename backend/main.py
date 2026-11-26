@@ -3,32 +3,38 @@
 Serves the API and, when built, the React frontend as static files
 (single service). The model is loaded lazily — importing this module
 never loads the model artifacts.
+
+The job feed has no database: listings are fetched server-side from
+the Arbeitnow API and held in an in-memory cache (backend/feed.py).
 """
 
-import json
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
+from collections import Counter
+from datetime import datetime, timezone
 from typing import Optional
 
 # common/ lives next to backend/; make it importable whatever the CWD is.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from common.features import merge_text
 from . import config
-from .database import Base, engine, ensure_job_columns, get_db
 from .de_rules import check_german
-from .ingest import ingest_arbeitnow
+from .feed import (
+    UPSTREAM_UNAVAILABLE_MESSAGE,
+    UpstreamUnavailable,
+    current_status,
+    filter_jobs,
+    get_feed,
+    get_job,
+)
 from .language import analyze_language
 from .ml import ModelNotAvailable, model_info, predict
-from .models import IngestRun, Job
 from .schemas import (
     DE_METHOD_LABEL_DE,
     DE_METHOD_LABEL_EN,
@@ -36,7 +42,7 @@ from .schemas import (
     DISCLAIMER_DE,
     ML_METHOD_LABEL_DE,
     ML_METHOD_LABEL_EN,
-    IngestOut,
+    FeedInfo,
     JobOut,
     JobsPage,
     PredictIn,
@@ -46,30 +52,6 @@ from .schemas import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-Base.metadata.create_all(bind=engine)
-try:
-    ensure_job_columns()
-except Exception:  # noqa: BLE001 — a missing column must never block startup
-    logger.exception("Could not ensure jobs table columns; continuing")
-
-_scheduler = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _scheduler
-    if config.RUN_SCHEDULER:
-        from .scheduler import start_scheduler
-
-        _scheduler = start_scheduler()
-        logger.info("Scheduler enabled")
-    else:
-        logger.info("Scheduler disabled (RUN_SCHEDULER=false)")
-    yield
-    if _scheduler is not None:
-        _scheduler.shutdown(wait=False)
-
 
 app = FastAPI(
     title="Scam Job Posting Detector",
@@ -82,8 +64,7 @@ app = FastAPI(
         "risk estimates, never a definitive verdict. The live job "
         "listings come from the Arbeitnow API (Germany)."
     ),
-    version="1.2.0",
-    lifespan=lifespan,
+    version="2.0.0",
 )
 
 
@@ -97,88 +78,42 @@ def health():
     return {"status": "ok", "model_loaded": model_loaded}
 
 
-def _job_out(job: Job) -> JobOut:
-    data = {
-        "id": job.id,
-        "source": job.source,
-        "external_id": job.external_id,
-        "title": job.title,
-        "company": job.company,
-        "location": job.location,
-        "url": job.url,
-        "description": job.description,
-        "category": job.category,
-        "posted_at": job.posted_at,
-        "fetched_at": job.fetched_at,
-        "fraud_probability": job.fraud_probability,
-        "decision_score": job.decision_score,
-        "risk_band": job.risk_band,
-        "language": job.language,
-        "indicators": json.loads(job.indicators or "{}"),
-        "expired": job.expired,
-    }
-    return JobOut(**data)
-
-
 @app.get("/api/jobs", response_model=JobsPage)
 def list_jobs(
     q: Optional[str] = Query(None, description="Search title, company or location"),
     category: Optional[str] = Query(None),
-    min_risk: Optional[float] = Query(None, ge=0.0, le=1.0),
-    max_risk: Optional[float] = Query(None, ge=0.0, le=1.0),
-    risk_band: Optional[str] = Query(None),
-    sort: str = Query("newest", pattern="^(newest|oldest|risk_desc|risk_asc)$"),
-    include_expired: bool = Query(False),
+    sort: str = Query("newest", pattern="^(newest|oldest)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
 ):
-    query = db.query(Job)
-    if not include_expired:
-        query = query.filter(Job.expired.is_(False))
-    if q:
-        like = f"%{q}%"
-        query = query.filter(
-            (Job.title.ilike(like)) | (Job.company.ilike(like)) | (Job.location.ilike(like))
-        )
-    if category:
-        query = query.filter(Job.category == category)
-    if min_risk is not None:
-        query = query.filter(Job.fraud_probability >= min_risk)
-    if max_risk is not None:
-        query = query.filter(Job.fraud_probability <= max_risk)
-    if risk_band:
-        query = query.filter(Job.risk_band == risk_band)
-    total = query.count()
-    order = {
-        "newest": Job.posted_at.desc(),
-        "oldest": Job.posted_at.asc(),
-        "risk_desc": Job.fraud_probability.desc(),
-        "risk_asc": Job.fraud_probability.asc(),
-    }[sort]
-    items = (
-        query.order_by(order)
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
+    try:
+        feed = get_feed()
+    except UpstreamUnavailable:
+        raise HTTPException(status_code=503, detail=UPSTREAM_UNAVAILABLE_MESSAGE)
+    filtered = filter_jobs(feed["jobs"], q=q, category=category, sort=sort)
+    total = len(filtered)
+    page_items = filtered[(page - 1) * per_page: page * per_page]
     return JobsPage(
         total=total, page=page, per_page=per_page,
-        items=[_job_out(j) for j in items],
+        items=[JobOut(**j) for j in page_items],
+        stale=feed["stale"], cached_at=feed["cached_at"],
     )
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobOut)
-def get_job(job_id: int, db: Session = Depends(get_db)):
-    job = db.query(Job).filter(Job.id == job_id).first()
+def get_job_by_id(job_id: str):
+    try:
+        job = get_job(job_id)
+    except UpstreamUnavailable:
+        raise HTTPException(status_code=503, detail=UPSTREAM_UNAVAILABLE_MESSAGE)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _job_out(job)
+    return JobOut(**job)
 
 
 # Paste-in form limits: at least 100 characters in total (the model
 # needs real text), at most 10,000 (keeps one request small on the
-# free tier). Ingested listings are not subject to this limit.
+# free tier). Feed listings are not scored, so no limit applies to them.
 MIN_INPUT_CHARS = 100
 MAX_INPUT_CHARS = 10_000
 
@@ -289,7 +224,7 @@ def predict_posting(payload: PredictIn):
     except ModelNotAvailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     # The checker response carries no fraud probability (it is not a
-    # "% chance of scam"); predict() keeps it internally for the feed.
+    # "% chance of scam"); predict() keeps it internally and it is never shown.
     return PredictOut(
         path="ml",
         decision_score=result["decision_score"],
@@ -311,51 +246,35 @@ def predict_posting(payload: PredictIn):
     )
 
 
-@app.post("/api/jobs/ingest", response_model=IngestOut)
-def trigger_ingest(x_ingest_token: Optional[str] = Header(None)):
-    if not config.INGEST_TOKEN:
-        raise HTTPException(
-            status_code=503,
-            detail="Ingestion is disabled: INGEST_TOKEN is not configured.",
-        )
-    if x_ingest_token != config.INGEST_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid ingest token")
-    try:
-        result = ingest_arbeitnow()
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Manual ingest failed")
-        raise HTTPException(status_code=500, detail=str(exc))
-    return IngestOut(**result)
-
-
 @app.get("/api/stats", response_model=StatsOut)
-def stats(db: Session = Depends(get_db)):
-    total = db.query(func.count(Job.id)).scalar() or 0
-    active = db.query(func.count(Job.id)).filter(Job.expired.is_(False)).scalar() or 0
-    by_category = dict(
-        db.query(Job.category, func.count(Job.id))
-        .filter(Job.expired.is_(False))
-        .group_by(Job.category)
-        .all()
-    )
-    by_risk = dict(
-        db.query(Job.risk_band, func.count(Job.id))
-        .filter(Job.expired.is_(False))
-        .group_by(Job.risk_band)
-        .all()
-    )
-    last = (
-        db.query(IngestRun)
-        .order_by(IngestRun.started_at.desc())
-        .first()
-    )
+def stats():
+    try:
+        feed = get_feed()
+        jobs = feed["jobs"]
+        feed_info = FeedInfo(
+            source="arbeitnow",
+            cached_at=feed["cached_at"],
+            cache_age_seconds=(
+                None if feed["cached_at"] is None
+                else int((datetime.now(timezone.utc) - feed["cached_at"]).total_seconds())
+            ),
+            upstream_ok=feed["upstream_ok"],
+            stale=feed["stale"],
+        )
+    except UpstreamUnavailable:
+        # No cache and the upstream is down: report an empty feed with
+        # upstream_ok=false instead of failing the stats call.
+        jobs = []
+        status = current_status()
+        status["upstream_ok"] = False
+        feed_info = FeedInfo(**status)
+    by_category = dict(Counter(j["category"] for j in jobs))
     return StatsOut(
-        total_jobs=total,
-        active_jobs=active,
+        total_jobs=len(jobs),
+        active_jobs=len(jobs),
         by_category=by_category,
-        by_risk_band=by_risk,
-        last_ingest=last.finished_at if last else None,
         model=model_info(),
+        feed=feed_info,
     )
 
 

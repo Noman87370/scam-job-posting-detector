@@ -31,10 +31,9 @@ ADVICE_LINK = (
     "gefaelschte-stellenanzeigen-was-ist-jobscamming-28475"
 )
 
-# Version of this rule set. Bump it whenever a rule changes. The ingest
-# backfill (backend/ingest.py) re-scores stored German rows whose stored
-# rules_version differs from this one, so a rule fix heals the live
-# feed on the next ingest instead of leaving old rows wrong.
+# Version of this rule set. Bump it whenever a rule changes. The checker
+# runs only on text the user pastes (there are no stored feed rows to
+# re-score), so the version is recorded in results for traceability.
 RULES_VERSION = "2026-11-26-v2"
 
 # Phrases in the matched sentence that show the text is a job duty or a
